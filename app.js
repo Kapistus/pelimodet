@@ -180,25 +180,36 @@
 
   function applyTransform() {
     world.style.transform = `translate3d(${state.tx}px, ${state.ty}px, 0) scale(${state.scale})`;
-    updateMarkerScales();
+    updateMarkerPositions();
   }
 
-  function updateMarkerScales() {
-    // Counter-scale every placed marker so it renders at a constant, native pixel size on
-    // screen regardless of map zoom — this also avoids the blur that comes from the browser
-    // stretching an already-rasterized icon/text bitmap when the parent map is scaled up.
-    if (!state.scale) return;
-    const inv = 1 / state.scale;
+  function worldToScreen(wx, wy) {
+    return { x: state.tx + wx * state.scale, y: state.ty + wy * state.scale };
+  }
+
+  function updateMarkerPositions() {
+    // Markers live in a separate, un-scaled overlay layer (a sibling of #world, not a
+    // descendant of it), so we position each one in plain screen pixels here whenever the
+    // map pans or zooms. Because the marker DOM never sits inside a scaled/rasterized
+    // layer, it's never resampled — it always renders at its natural, crisp pixel size.
     const els = markerLayer.children;
     for (let i = 0; i < els.length; i++) {
-      els[i].style.transform = `scale(${inv})`;
+      const el = els[i];
+      const id = el.dataset.id;
+      const m = state.markers.find(x => x.id === id);
+      if (!m) continue;
+      const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
+      el.style.left = sp.x + 'px';
+      el.style.top = sp.y + 'px';
     }
   }
 
   function screenToWorld(clientX, clientY) {
     const r = viewport.getBoundingClientRect();
-    const sx = clientX - r.left;
-    const sy = clientY - r.top;
+    return viewportPxToWorld(clientX - r.left, clientY - r.top);
+  }
+
+  function viewportPxToWorld(sx, sy) {
     return {
       x: (sx - state.tx) / state.scale,
       y: (sy - state.ty) / state.scale,
@@ -289,8 +300,9 @@
     state.markers.forEach(m => {
       const el = document.createElement('div');
       el.className = 'marker' + (m.id === state.selectedId ? ' selected' : '');
-      el.style.left = (m.x * state.naturalW) + 'px';
-      el.style.top = (m.y * state.naturalH) + 'px';
+      const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
+      el.style.left = sp.x + 'px';
+      el.style.top = sp.y + 'px';
       el.innerHTML = markerSVG(m);
       el.dataset.id = m.id;
 
@@ -302,14 +314,13 @@
       attachMarkerDrag(el, m);
       markerLayer.appendChild(el);
     });
-    updateMarkerScales();
   }
 
   function attachMarkerDrag(el, m) {
     let dragging = false;
     let moved = false;
     let startClientX = 0, startClientY = 0;
-    let startMarkerX = 0, startMarkerY = 0;
+    let startLeft = 0, startTop = 0;
 
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -318,8 +329,8 @@
       moved = false;
       startClientX = e.clientX;
       startClientY = e.clientY;
-      startMarkerX = m.x;
-      startMarkerY = m.y;
+      startLeft = parseFloat(el.style.left) || 0;
+      startTop = parseFloat(el.style.top) || 0;
       el.setPointerCapture(e.pointerId);
     });
 
@@ -329,14 +340,15 @@
       const dyScreen = e.clientY - startClientY;
       if (Math.abs(dxScreen) > 5 || Math.abs(dyScreen) > 5) moved = true;
       if (moved) {
-        // Move relative to the grab point (in world units), not snapped to the cursor's
-        // absolute position — this preserves wherever on the icon you first clicked.
-        const dxWorld = dxScreen / state.scale;
-        const dyWorld = dyScreen / state.scale;
-        m.x = clamp01(startMarkerX + dxWorld / state.naturalW);
-        m.y = clamp01(startMarkerY + dyWorld / state.naturalH);
-        el.style.left = (m.x * state.naturalW) + 'px';
-        el.style.top = (m.y * state.naturalH) + 'px';
+        // Marker position is plain screen pixels, so the cursor delta maps 1:1 — no scale
+        // math needed, and it always tracks exactly from wherever it was grabbed.
+        const newLeft = startLeft + dxScreen;
+        const newTop = startTop + dyScreen;
+        el.style.left = newLeft + 'px';
+        el.style.top = newTop + 'px';
+        const wp = viewportPxToWorld(newLeft, newTop);
+        m.x = clamp01(wp.x / state.naturalW);
+        m.y = clamp01(wp.y / state.naturalH);
       }
     });
 
@@ -494,7 +506,7 @@
   function midpoint(p1, p2) { return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }; }
 
   viewport.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.marker')) return;
+    if (e.target.closest('.marker') || e.target.closest('.zoom-controls')) return;
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     viewport.setPointerCapture(e.pointerId);
     if (activePointers.size === 1) {
