@@ -63,9 +63,6 @@
   const layoutNameInput = document.getElementById('layoutNameInput');
   const btnSave = document.getElementById('btnSave');
   const btnNew = document.getElementById('btnNew');
-  const btnExport = document.getElementById('btnExport');
-  const btnImport = document.getElementById('btnImport');
-  const importFile = document.getElementById('importFile');
   const btnLoadToggle = document.getElementById('btnLoadToggle');
   const loadMenu = document.getElementById('loadMenu');
 
@@ -920,6 +917,11 @@
     saveSession();
   });
 
+  layoutNameInput.addEventListener('input', () => {
+    state.layoutName = layoutNameInput.value.trim() || 'Untitled layout';
+    saveSession();
+  });
+
   window.addEventListener('resize', () => fitToBBox(state.bbox[state.area]));
 
   /* ============================== SAVE / LOAD / EXPORT / IMPORT ============================== */
@@ -1102,37 +1104,6 @@
     hideEditPanel();
     renderMarkers();
     saveSession();
-  });
-
-  btnExport.addEventListener('click', () => {
-    const layout = currentLayoutObject();
-    const blob = new Blob([JSON.stringify(layout, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const safeName = (layout.name || 'layout').replace(/[^a-z0-9_\-]+/gi, '_');
-    a.href = url;
-    a.download = `${safeName}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  });
-
-  btnImport.addEventListener('click', () => importFile.click());
-  importFile.addEventListener('change', () => {
-    const file = importFile.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const layout = JSON.parse(reader.result);
-        applyLayoutObject(layout);
-      } catch (e) {
-        alert('Could not read that file — it does not look like a valid layout export.');
-      }
-      importFile.value = '';
-    };
-    reader.readAsText(file);
   });
 
   /* ============================== SUPABASE (marshal login / live briefing) ============================== */
