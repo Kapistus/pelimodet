@@ -524,3 +524,44 @@ select.text-input{ min-width:140px; }
   z-index:150;
   box-shadow:0 1px 3px rgba(0,0,0,0.5);
 }
+
+/* ---------- Marshal login / publish / live indicator ---------- */
+.topbar-group-end{
+  margin-left:auto;
+}
+
+.marshal-email{
+  font-size:12px;
+  color:var(--text-dim);
+  white-space:nowrap;
+}
+
+.live-indicator{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-family:'Oswald', sans-serif;
+  font-size:12px;
+  letter-spacing:0.03em;
+  color:var(--text-dim);
+  white-space:nowrap;
+}
+.live-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#3fb35c;
+  box-shadow:0 0 6px #3fb35c;
+}
+
+.login-error{
+  background:rgba(181,68,58,0.15);
+  border:1px solid var(--danger);
+  color:#f0a99f;
+  font-size:13px;
+  padding:8px 10px;
+  border-radius:5px;
+}
+
+/* Public/anonymous visitors see a read-only view: editing controls are hidden entirely. */
+body.viewer-mode .marshal-only{ display:none !important; }
