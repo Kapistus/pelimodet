@@ -14,7 +14,15 @@
     mortar:  { label: 'Mortar',         letter: 'M', kind: 'pin' },
     flag:    { label: 'Flag',           kind: 'flag' },
     custom:  { label: 'Custom Marker',  kind: 'pin' },
+    arrow:   { label: 'Arrow',          kind: 'arrow' },
   };
+
+  // Arrowhead size is fixed relative to the base marker scale — it never stretches with
+  // shaft length, only with map zoom (same as every other icon's proportional sizing).
+  const ARROW_HEAD_LEN = 16;
+  const ARROW_HEAD_WIDTH = 13;
+  const ARROW_STROKE = 4;
+  const ARROW_DEFAULT_LEN_WORLD = 90; // default shaft length (world px) when first placed
 
   const MIN_SCALE = 0.15;
   const MAX_SCALE = 6;
@@ -25,6 +33,7 @@
     area: 'default',           // 'default' | 'extended'
     markers: [],                // {id,type,label,color,letter,kind,x,y} x/y are fractions 0..1
     layoutName: 'Untitled layout',
+    rules: '',
     selectedId: null,
     scale: 1,
     tx: 0,
@@ -62,6 +71,11 @@
 
   const zoomFitBtn = document.getElementById('zoomFit');
 
+  const rulesPanel = document.getElementById('rulesPanel');
+  const rulesTextarea = document.getElementById('rulesTextarea');
+  const btnRulesToggle = document.getElementById('btnRulesToggle');
+  const btnRulesClose = document.getElementById('btnRulesClose');
+
   const editPanel = document.getElementById('editPanel');
   const editName = document.getElementById('editName');
   const editColor = document.getElementById('editColor');
@@ -94,12 +108,21 @@
     return m.kind === 'flag' ? flagSVG(m.color) : pinSVG(m.color, m.letter || '?');
   }
 
+  function arrowPreviewSVG(color) {
+    // Simple static preview for the palette icon / drag ghost (not the live editable arrow)
+    return `<svg viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg">
+      <line x1="3" y1="34" x2="22" y2="12" stroke="${color}" stroke-width="4" stroke-linecap="round"/>
+      <polygon points="22,3 32,10 17,17" fill="${color}" stroke="#14170f" stroke-width="1"/>
+    </svg>`;
+  }
+
   // Populate static palette icons (preview only — actual color is assigned per the cycle at drop time)
   document.querySelectorAll('.palette-icon').forEach(el => {
     const kind = el.getAttribute('data-icon');
     let svg;
     if (kind === 'flag') svg = flagSVG(FLAG_COLORS[0]);
     else if (kind === 'custom') svg = pinSVG(customColorInput.value, '?');
+    else if (kind === 'arrow') svg = arrowPreviewSVG(FLAG_COLORS[0]);
     else svg = pinSVG(FLAG_COLORS[0], TYPE_DEFS[kind].letter);
     el.innerHTML = svg;
   });
@@ -203,14 +226,19 @@
       const id = el.dataset.id;
       const m = state.markers.find(x => x.id === id);
       if (!m) continue;
-      const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
-      el.style.left = sp.x + 'px';
-      el.style.top = sp.y + 'px';
-      el.style.width = w + 'px';
-      el.style.height = h + 'px';
-      el.style.marginLeft = (-w / 2) + 'px';
-      el.style.marginTop = (-h * 0.929) + 'px'; // keeps the pin's tip anchored at (sp.x, sp.y)
+      if (m.kind === 'arrow') {
+        updateArrowGeometry(el, m);
+      } else if (el.classList.contains('marker')) {
+        const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
+        el.style.left = sp.x + 'px';
+        el.style.top = sp.y + 'px';
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
+        el.style.marginLeft = (-w / 2) + 'px';
+        el.style.marginTop = (-h * 0.929) + 'px'; // keeps the pin's tip anchored at (sp.x, sp.y)
+      }
     }
+    updateArrowHandlePositions();
   }
 
   function screenToWorld(clientX, clientY) {
@@ -304,26 +332,114 @@
     return m;
   }
 
+  function createArrowData(x1, y1, x2, y2) {
+    return {
+      id: nextId(),
+      type: 'arrow',
+      kind: 'arrow',
+      color: colorForNewOfType('arrow'),
+      label: '',
+      x1: clamp01(x1), y1: clamp01(y1),
+      x2: clamp01(x2), y2: clamp01(y2),
+    };
+  }
+
+  function addArrow(x1, y1, x2, y2) {
+    const m = createArrowData(x1, y1, x2, y2);
+    state.markers.push(m);
+    renderMarkers();
+    saveSession();
+    return m;
+  }
+
   function renderMarkers() {
     markerLayer.innerHTML = '';
     state.markers.forEach(m => {
-      const el = document.createElement('div');
-      el.className = 'marker' + (m.id === state.selectedId ? ' selected' : '');
-      const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
-      el.style.left = sp.x + 'px';
-      el.style.top = sp.y + 'px';
-      el.innerHTML = markerSVG(m);
-      el.dataset.id = m.id;
-
-      const labelEl = document.createElement('div');
-      labelEl.className = 'marker-label';
-      labelEl.textContent = m.label;
-      el.appendChild(labelEl);
-
-      attachMarkerDrag(el, m);
+      const el = m.kind === 'arrow' ? createArrowElement(m) : createPointMarkerElement(m);
       markerLayer.appendChild(el);
     });
     updateMarkerPositions();
+    refreshArrowHandles();
+  }
+
+  function createPointMarkerElement(m) {
+    const el = document.createElement('div');
+    el.className = 'marker' + (m.id === state.selectedId ? ' selected' : '');
+    const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
+    el.style.left = sp.x + 'px';
+    el.style.top = sp.y + 'px';
+    el.innerHTML = markerSVG(m);
+    el.dataset.id = m.id;
+
+    const labelEl = document.createElement('div');
+    labelEl.className = 'marker-label';
+    labelEl.textContent = m.label;
+    el.appendChild(labelEl);
+
+    attachMarkerDrag(el, m);
+    return el;
+  }
+
+  function createArrowElement(m) {
+    const el = document.createElement('div');
+    el.className = 'arrow-el' + (m.id === state.selectedId ? ' selected' : '');
+    el.dataset.id = m.id;
+    attachArrowBodyDrag(el, m);
+    return el;
+  }
+
+  function updateArrowGeometry(el, m) {
+    const tailSp = worldToScreen(m.x1 * state.naturalW, m.y1 * state.naturalH);
+    const tipSp = worldToScreen(m.x2 * state.naturalW, m.y2 * state.naturalH);
+    const dx = tipSp.x - tailSp.x, dy = tipSp.y - tailSp.y;
+    const len = Math.hypot(dx, dy);
+    const ux = len > 0 ? dx / len : 1;
+    const uy = len > 0 ? dy / len : 0;
+
+    // The arrowhead's size is fixed relative to map zoom only — never to the shaft's
+    // length — so stretching the shaft never distorts or resizes the pointer.
+    const headLen = ARROW_HEAD_LEN * state.scale;
+    const headW = ARROW_HEAD_WIDTH * state.scale;
+    const stroke = Math.max(1.5, ARROW_STROKE * state.scale);
+    const pad = headW + stroke + 4;
+
+    const minX = Math.min(tailSp.x, tipSp.x) - pad;
+    const minY = Math.min(tailSp.y, tipSp.y) - pad;
+    const maxX = Math.max(tailSp.x, tipSp.x) + pad;
+    const maxY = Math.max(tailSp.y, tipSp.y) + pad;
+    const boxW = Math.max(1, maxX - minX);
+    const boxH = Math.max(1, maxY - minY);
+
+    el.style.left = minX + 'px';
+    el.style.top = minY + 'px';
+    el.style.width = boxW + 'px';
+    el.style.height = boxH + 'px';
+
+    const tailLocal = { x: tailSp.x - minX, y: tailSp.y - minY };
+    const tipLocal = { x: tipSp.x - minX, y: tipSp.y - minY };
+    const shaftEnd = { x: tipLocal.x - ux * headLen * 0.6, y: tipLocal.y - uy * headLen * 0.6 };
+    const backCenter = { x: tipLocal.x - ux * headLen, y: tipLocal.y - uy * headLen };
+    const perpX = -uy, perpY = ux;
+    const baseLeft = { x: backCenter.x + perpX * (headW / 2), y: backCenter.y + perpY * (headW / 2) };
+    const baseRight = { x: backCenter.x - perpX * (headW / 2), y: backCenter.y - perpY * (headW / 2) };
+
+    el.innerHTML = `<svg viewBox="0 0 ${boxW} ${boxH}" xmlns="http://www.w3.org/2000/svg">
+      <line x1="${tailLocal.x}" y1="${tailLocal.y}" x2="${shaftEnd.x}" y2="${shaftEnd.y}" stroke="${m.color}" stroke-width="${stroke}" stroke-linecap="round"/>
+      <polygon points="${tipLocal.x},${tipLocal.y} ${baseLeft.x},${baseLeft.y} ${baseRight.x},${baseRight.y}" fill="${m.color}" stroke="#14170f" stroke-width="1"/>
+    </svg>`;
+
+    if (m.label) {
+      const midX = (tailLocal.x + tipLocal.x) / 2;
+      const midY = (tailLocal.y + tipLocal.y) / 2;
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'marker-label';
+      labelDiv.style.position = 'absolute';
+      labelDiv.style.left = midX + 'px';
+      labelDiv.style.top = midY + 'px';
+      labelDiv.style.transform = 'translate(-50%, -50%)';
+      labelDiv.textContent = m.label;
+      el.appendChild(labelDiv);
+    }
   }
 
   function attachMarkerDrag(el, m) {
@@ -371,6 +487,116 @@
 
   function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
+  function attachArrowBodyDrag(el, m) {
+    let dragging = false;
+    let moved = false;
+    let startClientX = 0, startClientY = 0;
+    let startTailSp, startTipSp;
+
+    el.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      dragging = true;
+      moved = false;
+      startClientX = e.clientX;
+      startClientY = e.clientY;
+      startTailSp = worldToScreen(m.x1 * state.naturalW, m.y1 * state.naturalH);
+      startTipSp = worldToScreen(m.x2 * state.naturalW, m.y2 * state.naturalH);
+      el.setPointerCapture(e.pointerId);
+    });
+
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dxScreen = e.clientX - startClientX;
+      const dyScreen = e.clientY - startClientY;
+      if (Math.abs(dxScreen) > 5 || Math.abs(dyScreen) > 5) moved = true;
+      if (moved) {
+        const newTail = viewportPxToWorld(startTailSp.x + dxScreen, startTailSp.y + dyScreen);
+        const newTip = viewportPxToWorld(startTipSp.x + dxScreen, startTipSp.y + dyScreen);
+        m.x1 = clamp01(newTail.x / state.naturalW);
+        m.y1 = clamp01(newTail.y / state.naturalH);
+        m.x2 = clamp01(newTip.x / state.naturalW);
+        m.y2 = clamp01(newTip.y / state.naturalH);
+        updateArrowGeometry(el, m);
+        updateArrowHandlePositions();
+      }
+    });
+
+    el.addEventListener('pointerup', () => {
+      dragging = false;
+      selectMarker(m.id);
+      saveSession();
+    });
+  }
+
+  function attachArrowHandleDrag(handleEl, m, which) {
+    let dragging = false;
+    let startClientX = 0, startClientY = 0;
+    let startSp;
+
+    handleEl.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      dragging = true;
+      startClientX = e.clientX;
+      startClientY = e.clientY;
+      startSp = which === 'tail'
+        ? worldToScreen(m.x1 * state.naturalW, m.y1 * state.naturalH)
+        : worldToScreen(m.x2 * state.naturalW, m.y2 * state.naturalH);
+      handleEl.setPointerCapture(e.pointerId);
+    });
+
+    handleEl.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dxScreen = e.clientX - startClientX;
+      const dyScreen = e.clientY - startClientY;
+      const wp = viewportPxToWorld(startSp.x + dxScreen, startSp.y + dyScreen);
+      const fx = clamp01(wp.x / state.naturalW);
+      const fy = clamp01(wp.y / state.naturalH);
+      if (which === 'tail') { m.x1 = fx; m.y1 = fy; } else { m.x2 = fx; m.y2 = fy; }
+      const arrowEl = markerLayer.querySelector('.arrow-el[data-id="' + m.id + '"]');
+      if (arrowEl) updateArrowGeometry(arrowEl, m);
+      updateArrowHandlePositions();
+    });
+
+    handleEl.addEventListener('pointerup', () => {
+      dragging = false;
+      saveSession();
+    });
+  }
+
+  // The two round drag-handles for the currently selected arrow (tail + tip). Only one
+  // arrow's handles exist at a time, recreated whenever selection or the marker list changes.
+  let arrowHandles = null; // { tailEl, tipEl, arrowId } | null
+
+  function refreshArrowHandles() {
+    arrowHandles = null; // any previous handle DOM was already removed by markerLayer.innerHTML=''
+    const m = state.markers.find(x => x.id === state.selectedId);
+    if (!m || m.kind !== 'arrow') return;
+    const tailEl = document.createElement('div');
+    tailEl.className = 'arrow-handle';
+    const tipEl = document.createElement('div');
+    tipEl.className = 'arrow-handle';
+    markerLayer.appendChild(tailEl);
+    markerLayer.appendChild(tipEl);
+    attachArrowHandleDrag(tailEl, m, 'tail');
+    attachArrowHandleDrag(tipEl, m, 'tip');
+    arrowHandles = { tailEl, tipEl, arrowId: m.id };
+    updateArrowHandlePositions();
+  }
+
+  function updateArrowHandlePositions() {
+    if (!arrowHandles) return;
+    const m = state.markers.find(x => x.id === arrowHandles.arrowId);
+    if (!m) return;
+    const tailSp = worldToScreen(m.x1 * state.naturalW, m.y1 * state.naturalH);
+    const tipSp = worldToScreen(m.x2 * state.naturalW, m.y2 * state.naturalH);
+    arrowHandles.tailEl.style.left = tailSp.x + 'px';
+    arrowHandles.tailEl.style.top = tailSp.y + 'px';
+    arrowHandles.tipEl.style.left = tipSp.x + 'px';
+    arrowHandles.tipEl.style.top = tipSp.y + 'px';
+  }
+
   function addMarker(type, x, y, opts) {
     const m = createMarkerData(type, clamp01(x), clamp01(y), opts);
     state.markers.push(m);
@@ -391,7 +617,7 @@
     state.selectedId = id;
     const m = state.markers.find(x => x.id === id);
     if (!m) { hideEditPanel(); return; }
-    editName.value = m.label;
+    editName.value = m.label || '';
     editColor.value = m.color;
     editPanel.classList.remove('hidden');
     renderMarkers();
@@ -406,7 +632,7 @@
   editName.addEventListener('input', () => {
     const m = state.markers.find(x => x.id === state.selectedId);
     if (!m) return;
-    m.label = editName.value || m.label;
+    m.label = editName.value;
     if (m.type === 'custom') m.letter = (m.label.trim()[0] || '?').toUpperCase();
     renderMarkers();
     saveSession();
@@ -443,7 +669,8 @@
     const ghost = document.createElement('div');
     ghost.className = 'drag-ghost';
     let previewColor = type === 'custom' ? customColorInput.value : colorForNewOfType(type);
-    ghost.innerHTML = type === 'flag' ? flagSVG(previewColor) : pinSVG(previewColor, def.letter || '?');
+    if (type === 'arrow') ghost.innerHTML = arrowPreviewSVG(previewColor);
+    else ghost.innerHTML = type === 'flag' ? flagSVG(previewColor) : pinSVG(previewColor, def.letter || '?');
     document.body.appendChild(ghost);
 
     const move = (e) => {
@@ -470,6 +697,10 @@
         nameModalInput.value = '';
         nameModal.classList.remove('hidden');
         setTimeout(() => nameModalInput.focus(), 50);
+      } else if (type === 'arrow') {
+        const x2 = clamp01(fx + ARROW_DEFAULT_LEN_WORLD / state.naturalW);
+        const newArrow = addArrow(fx, fy, x2, fy);
+        selectMarker(newArrow.id);
       } else {
         addMarker(type, fx, fy);
       }
@@ -580,6 +811,14 @@
   areaSelect.addEventListener('change', () => setArea(areaSelect.value));
   tintToggle.addEventListener('change', () => { state.tintOn = tintToggle.checked; updateTintVisibility(); });
 
+  /* ---------- Rules panel ---------- */
+  btnRulesToggle.addEventListener('click', () => rulesPanel.classList.toggle('open'));
+  btnRulesClose.addEventListener('click', () => rulesPanel.classList.remove('open'));
+  rulesTextarea.addEventListener('input', () => {
+    state.rules = rulesTextarea.value;
+    saveSession();
+  });
+
   window.addEventListener('resize', () => fitToBBox(state.bbox[state.area]));
 
   /* ============================== SAVE / LOAD / EXPORT / IMPORT ============================== */
@@ -596,7 +835,8 @@
     return {
       name: state.layoutName,
       area: state.area,
-      markers: state.markers.map(({ id, type, kind, color, letter, label, x, y }) => ({ id, type, kind, color, letter, label, x, y })),
+      rules: state.rules,
+      markers: state.markers.map(m => ({ ...m })),
     };
   }
 
@@ -613,6 +853,8 @@
   function applyLayoutObject(layout) {
     state.layoutName = layout.name || 'Untitled layout';
     layoutNameInput.value = state.layoutName;
+    state.rules = layout.rules || '';
+    rulesTextarea.value = state.rules;
     state.markers = (layout.markers || []).map(m => ({ ...m }));
     let maxId = 0;
     state.markers.forEach(m => {
@@ -693,10 +935,12 @@
   });
 
   btnNew.addEventListener('click', () => {
-    if (state.markers.length && !confirm('Start a new layout? Unsaved changes to the current one will be lost unless already saved.')) return;
+    if ((state.markers.length || state.rules) && !confirm('Start a new layout? Unsaved changes to the current one will be lost unless already saved.')) return;
     state.layoutName = 'Untitled layout';
     layoutNameInput.value = state.layoutName;
     state.markers = [];
+    state.rules = '';
+    rulesTextarea.value = '';
     state.selectedId = null;
     hideEditPanel();
     renderMarkers();
