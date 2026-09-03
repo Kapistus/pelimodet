@@ -44,6 +44,7 @@
           <option value="extended">Extended area</option>
         </select>
       </label>
+      <button id="btnRulesToggle" class="btn">Rules</button>
     </div>
   </header>
 
@@ -86,6 +87,14 @@
 
       <div class="palette-divider"></div>
 
+      <button class="palette-item" data-type="arrow" draggable="false">
+        <span class="palette-icon" data-icon="arrow"></span>
+        <span>Arrow</span>
+      </button>
+      <div class="palette-hint" style="margin-top:0;padding-top:0;border-top:none;">Drag onto the map, then drag either end to rotate and stretch it.</div>
+
+      <div class="palette-divider"></div>
+
       <label class="tint-row">
         <input id="tintToggle" type="checkbox" checked>
         <span>Show area boundary</span>
@@ -107,6 +116,15 @@
         <button id="zoomFit" class="zoom-btn zoom-btn-small">fit</button>
       </div>
     </div>
+
+    <!-- Rules side panel -->
+    <aside id="rulesPanel" class="rules-panel">
+      <div class="rules-panel-header">
+        <span class="palette-heading">Rules</span>
+        <button id="btnRulesClose" class="rules-close-btn" aria-label="Hide rules panel">&times;</button>
+      </div>
+      <textarea id="rulesTextarea" class="rules-textarea" placeholder="Write the rules for this game mode here — objectives, scoring, respawn conditions, anything players need to know."></textarea>
+    </aside>
 
   </div>
 
