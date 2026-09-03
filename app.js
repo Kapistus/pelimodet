@@ -42,6 +42,7 @@
     naturalH: 0,
     bbox: { default: null, extended: null }, // {minX,minY,maxX,maxY} in natural px
     tintOn: true,
+    isMarshal: false,
   };
 
   let idCounter = 1;
@@ -86,6 +87,18 @@
   const nameModalInput = document.getElementById('nameModalInput');
   const nameModalCancel = document.getElementById('nameModalCancel');
   const nameModalConfirm = document.getElementById('nameModalConfirm');
+
+  const btnMarshalLogin = document.getElementById('btnMarshalLogin');
+  const btnMarshalLogout = document.getElementById('btnMarshalLogout');
+  const marshalEmail = document.getElementById('marshalEmail');
+  const btnPublish = document.getElementById('btnPublish');
+  const liveIndicator = document.getElementById('liveIndicator');
+  const loginModal = document.getElementById('loginModal');
+  const loginEmail = document.getElementById('loginEmail');
+  const loginPassword = document.getElementById('loginPassword');
+  const loginError = document.getElementById('loginError');
+  const loginCancel = document.getElementById('loginCancel');
+  const loginSubmit = document.getElementById('loginSubmit');
 
   /* ============================== ICONS ============================== */
 
@@ -449,6 +462,7 @@
     let startLeft = 0, startTop = 0;
 
     el.addEventListener('pointerdown', (e) => {
+      if (!state.isMarshal) return;
       e.stopPropagation();
       e.preventDefault();
       dragging = true;
@@ -479,6 +493,7 @@
     });
 
     el.addEventListener('pointerup', (e) => {
+      if (!state.isMarshal) return;
       dragging = false;
       selectMarker(m.id);
       saveSession();
@@ -494,6 +509,7 @@
     let startTailSp, startTipSp;
 
     el.addEventListener('pointerdown', (e) => {
+      if (!state.isMarshal) return;
       e.stopPropagation();
       e.preventDefault();
       dragging = true;
@@ -523,6 +539,7 @@
     });
 
     el.addEventListener('pointerup', () => {
+      if (!state.isMarshal) return;
       dragging = false;
       selectMarker(m.id);
       saveSession();
@@ -535,6 +552,7 @@
     let startSp;
 
     handleEl.addEventListener('pointerdown', (e) => {
+      if (!state.isMarshal) return;
       e.stopPropagation();
       e.preventDefault();
       dragging = true;
@@ -560,6 +578,7 @@
     });
 
     handleEl.addEventListener('pointerup', () => {
+      if (!state.isMarshal) return;
       dragging = false;
       saveSession();
     });
@@ -571,6 +590,7 @@
 
   function refreshArrowHandles() {
     arrowHandles = null; // any previous handle DOM was already removed by markerLayer.innerHTML=''
+    if (!state.isMarshal) return;
     const m = state.markers.find(x => x.id === state.selectedId);
     if (!m || m.kind !== 'arrow') return;
     const tailEl = document.createElement('div');
@@ -978,6 +998,171 @@
     reader.readAsText(file);
   });
 
+  /* ============================== SUPABASE (marshal login / live briefing) ============================== */
+
+  const SUPABASE_URL = 'https://kjbzmjombtqciljlewvu.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqYnptam9tYnRxY2lsamxld3Z1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1Njc0NDMsImV4cCI6MjA5NTE0MzQ0M30.JfvLhxgcZkcPptRjDHgVneGr0PHRWHc76NFTpkp7q78';
+  const BRIEFING_ID = 'default';
+
+  // If the Supabase CDN script fails to load (slow/blocked network, ad-blocker, outage),
+  // the core map planner must still work fully offline/local — only the marshal-login and
+  // live-briefing features become unavailable for that session.
+  let sb = null;
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    try {
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (e) {
+      console.error('[FieldPlanner] Failed to initialize Supabase client:', e);
+    }
+  } else {
+    console.error('[FieldPlanner] Supabase SDK did not load — marshal login and the live briefing view are unavailable this session. The map planner itself still works normally.');
+  }
+
+  function setMarshalMode(isMarshal, email) {
+    state.isMarshal = isMarshal;
+    document.body.classList.toggle('viewer-mode', !isMarshal);
+    rulesTextarea.readOnly = !isMarshal;
+    btnMarshalLogin.classList.toggle('hidden', isMarshal);
+    btnMarshalLogout.classList.toggle('hidden', !isMarshal);
+    marshalEmail.classList.toggle('hidden', !isMarshal);
+    marshalEmail.textContent = isMarshal ? (email || '') : '';
+    if (isMarshal) {
+      state.selectedId = null;
+      renderMarkers();
+    }
+  }
+
+  async function refreshAuthUI() {
+    if (!sb) return false;
+    try {
+      const { data } = await sb.auth.getSession();
+      const session = data && data.session;
+      setMarshalMode(!!session, session && session.user && session.user.email);
+      return !!session;
+    } catch (e) {
+      console.error('[FieldPlanner] Could not check marshal session:', e);
+      return false;
+    }
+  }
+
+  if (sb) {
+    sb.auth.onAuthStateChange((_event, session) => {
+      setMarshalMode(!!session, session && session.user && session.user.email);
+    });
+  } else {
+    btnMarshalLogin.disabled = true;
+    btnMarshalLogin.title = 'Marshal login is unavailable right now — the login service failed to load.';
+  }
+
+  btnMarshalLogin.addEventListener('click', () => {
+    if (!sb) {
+      alert('Marshal login is unavailable right now (the login service failed to load). Try reloading the page, or check your connection.');
+      return;
+    }
+    loginError.classList.add('hidden');
+    loginEmail.value = '';
+    loginPassword.value = '';
+    loginModal.classList.remove('hidden');
+    setTimeout(() => loginEmail.focus(), 50);
+  });
+
+  loginCancel.addEventListener('click', () => loginModal.classList.add('hidden'));
+
+  loginSubmit.addEventListener('click', async () => {
+    if (!sb) return;
+    loginError.classList.add('hidden');
+    const email = loginEmail.value.trim();
+    const password = loginPassword.value;
+    if (!email || !password) return;
+    loginSubmit.disabled = true;
+    try {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) {
+        loginError.textContent = error.message;
+        loginError.classList.remove('hidden');
+        return;
+      }
+      loginModal.classList.add('hidden');
+    } catch (e) {
+      loginError.textContent = 'Could not reach the login service. Check your connection and try again.';
+      loginError.classList.remove('hidden');
+    } finally {
+      loginSubmit.disabled = false;
+    }
+  });
+
+  loginPassword.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loginSubmit.click();
+  });
+
+  btnMarshalLogout.addEventListener('click', () => { if (sb) sb.auth.signOut(); });
+
+  btnPublish.addEventListener('click', async () => {
+    if (!sb) { alert('Cannot publish — the login service failed to load. Try reloading the page.'); return; }
+    btnPublish.disabled = true;
+    const original = btnPublish.textContent;
+    try {
+      const { data: userData } = await sb.auth.getUser();
+      const uid = userData && userData.user && userData.user.id;
+      const { error } = await sb.from('field_briefing').upsert({
+        id: BRIEFING_ID,
+        layout: currentLayoutObject(),
+        updated_by: uid || null,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        alert('Could not publish: ' + error.message);
+      } else {
+        btnPublish.textContent = 'Published ✓';
+        setTimeout(() => { btnPublish.textContent = original; }, 1500);
+      }
+    } catch (e) {
+      alert('Could not publish — check your connection and try again.');
+    } finally {
+      btnPublish.disabled = false;
+    }
+  });
+
+  async function loadLiveBriefingForViewer() {
+    if (!sb) return false;
+    try {
+      const { data, error } = await sb
+        .from('field_briefing')
+        .select('layout, updated_at')
+        .eq('id', BRIEFING_ID)
+        .maybeSingle();
+      if (!error && data && data.layout) {
+        applyLayoutObject(data.layout);
+        liveIndicator.classList.remove('hidden');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('[FieldPlanner] Could not load the live briefing:', e);
+      return false;
+    }
+  }
+
+  function subscribeLiveBriefing() {
+    if (!sb) return;
+    try {
+      sb.channel('field_briefing_' + BRIEFING_ID)
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'field_briefing', filter: 'id=eq.' + BRIEFING_ID },
+          (payload) => {
+            // Only auto-apply for viewers — a logged-in marshal is working on their own
+            // draft and shouldn't have it silently overwritten by someone else's publish.
+            if (!state.isMarshal && payload.new && payload.new.layout) {
+              applyLayoutObject(payload.new.layout);
+              liveIndicator.classList.remove('hidden');
+            }
+          })
+        .subscribe();
+    } catch (e) {
+      console.error('[FieldPlanner] Could not subscribe to live briefing updates:', e);
+    }
+  }
+
   /* ============================== INIT ============================== */
 
   async function init() {
@@ -1003,14 +1188,22 @@
     checkMaskCssLoad(maskDefault, 'assets/default_map.png');
     checkMaskCssLoad(maskExtended, 'assets/extended_map.png');
 
-    const session = loadSession();
-    if (session && session.markers && session.markers.length) {
-      applyLayoutObject(session);
+    const isMarshal = await refreshAuthUI();
+
+    if (isMarshal) {
+      const session = loadSession();
+      if (session && session.markers && session.markers.length) {
+        applyLayoutObject(session);
+      } else {
+        setArea('default');
+      }
     } else {
-      setArea('default');
+      const gotBriefing = await loadLiveBriefingForViewer();
+      if (!gotBriefing) setArea('default');
     }
 
     applyTransform();
+    subscribeLiveBriefing();
   }
 
   init();
