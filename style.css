@@ -340,6 +340,8 @@ select.text-input{ min-width:140px; }
   border-radius:3px;
   white-space:nowrap;
   pointer-events:none;
+  text-transform:uppercase;
+  letter-spacing:0.02em;
 }
 
 .drag-ghost{
@@ -565,3 +567,23 @@ select.text-input{ min-width:140px; }
 
 /* Public/anonymous visitors see a read-only view: editing controls are hidden entirely. */
 body.viewer-mode .marshal-only{ display:none !important; }
+
+/* Elements shown only to anonymous viewers (inverse of marshal-only) */
+body:not(.viewer-mode) .viewer-only{ display:none !important; }
+
+.viewer-layout-title{
+  font-family:'Oswald', sans-serif;
+  font-size:16px;
+  color:var(--text-dim);
+  white-space:nowrap;
+  padding-top:2px;
+}
+
+.qr-image-wrap{
+  display:flex;
+  justify-content:center;
+  background:#fff;
+  border-radius:8px;
+  padding:12px;
+}
+.qr-image-wrap img{ display:block; width:220px; height:220px; }
