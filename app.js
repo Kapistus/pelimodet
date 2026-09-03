@@ -3,7 +3,6 @@
 
   /* ============================== CONFIG ============================== */
 
-  const STORAGE_KEY = 'fieldPlannerLayouts.v1';
   const SESSION_KEY = 'fieldPlannerSession.v1';
 
   const FLAG_COLORS = ['#d43b3b', '#e0c23e', '#3f7fd4', '#3fb35c']; // red, yellow, blue, green — the default auto-cycle for every marker type
@@ -842,14 +841,9 @@
   window.addEventListener('resize', () => fitToBBox(state.bbox[state.area]));
 
   /* ============================== SAVE / LOAD / EXPORT / IMPORT ============================== */
-
-  function readLayouts() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
-    catch (e) { return {}; }
-  }
-  function writeLayouts(obj) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
-  }
+  // Save/Load now read and write the shared `shared_layouts` Supabase table, so any
+  // logged-in marshal sees and can edit every game mode — no export/import needed to
+  // hand a layout to another marshal anymore.
 
   function currentLayoutObject() {
     return {
@@ -889,13 +883,31 @@
     saveSession();
   }
 
-  btnSave.addEventListener('click', () => {
+  btnSave.addEventListener('click', async () => {
+    if (!sb) { alert('Cannot save to the shared library — the login service failed to load. Try reloading the page.'); return; }
     state.layoutName = layoutNameInput.value.trim() || 'Untitled layout';
-    const layouts = readLayouts();
-    layouts[state.layoutName] = currentLayoutObject();
-    writeLayouts(layouts);
-    saveSession();
-    flashButton(btnSave, 'Saved ✓');
+    btnSave.disabled = true;
+    try {
+      const { data: userData } = await sb.auth.getUser();
+      const uid = userData && userData.user && userData.user.id;
+      const { error } = await sb.from('shared_layouts').upsert({
+        name: state.layoutName,
+        layout: currentLayoutObject(),
+        created_by: uid || null,
+        updated_by: uid || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'name' });
+      if (error) {
+        alert('Could not save: ' + error.message);
+      } else {
+        saveSession();
+        flashButton(btnSave, 'Saved ✓');
+      }
+    } catch (e) {
+      alert('Could not save — check your connection and try again.');
+    } finally {
+      btnSave.disabled = false;
+    }
   });
 
   function flashButton(btn, text) {
@@ -904,51 +916,76 @@
     setTimeout(() => { btn.textContent = original; }, 1200);
   }
 
-  function renderLoadMenu() {
-    const layouts = readLayouts();
-    const names = Object.keys(layouts);
+  async function renderLoadMenu() {
+    loadMenu.innerHTML = '<div class="dropdown-empty">Loading…</div>';
+    if (!sb) {
+      loadMenu.innerHTML = '<div class="dropdown-empty">Unavailable — the login service failed to load.</div>';
+      return;
+    }
+    const { data, error } = await sb
+      .from('shared_layouts')
+      .select('id, name, updated_at')
+      .order('name', { ascending: true });
+
+    if (error) {
+      loadMenu.innerHTML = '<div class="dropdown-empty">Could not load the shared library.</div>';
+      return;
+    }
+
     loadMenu.innerHTML = '';
-    if (names.length === 0) {
+    if (!data || data.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'dropdown-empty';
-      empty.textContent = 'No saved layouts yet.';
+      empty.textContent = 'No shared game modes yet.';
       loadMenu.appendChild(empty);
       return;
     }
-    names.forEach(name => {
-      const row = document.createElement('div');
-      row.className = 'dropdown-item';
+
+    data.forEach(row => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'dropdown-item';
       const label = document.createElement('span');
-      label.textContent = name;
-      label.addEventListener('click', () => {
-        applyLayoutObject(layouts[name]);
+      label.textContent = row.name;
+      label.addEventListener('click', async () => {
         loadMenu.classList.add('hidden');
+        const { data: full, error: fetchErr } = await sb
+          .from('shared_layouts')
+          .select('layout')
+          .eq('id', row.id)
+          .maybeSingle();
+        if (fetchErr || !full) {
+          alert('Could not load that layout.');
+          return;
+        }
+        applyLayoutObject(full.layout);
       });
       const del = document.createElement('span');
       del.className = 'del';
       del.textContent = 'Remove';
-      del.addEventListener('click', (e) => {
+      del.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const all = readLayouts();
-        delete all[name];
-        writeLayouts(all);
+        if (!confirm('Remove "' + row.name + '" for everyone? This cannot be undone.')) return;
+        const { error: delErr } = await sb.from('shared_layouts').delete().eq('id', row.id);
+        if (delErr) { alert('Could not remove: ' + delErr.message); return; }
         renderLoadMenu();
       });
-      row.appendChild(label);
-      row.appendChild(del);
-      loadMenu.appendChild(row);
+      rowEl.appendChild(label);
+      rowEl.appendChild(del);
+      loadMenu.appendChild(rowEl);
     });
   }
 
   btnLoadToggle.addEventListener('click', () => {
-    renderLoadMenu();
     const wasHidden = loadMenu.classList.contains('hidden');
     if (wasHidden) {
       const r = btnLoadToggle.getBoundingClientRect();
       loadMenu.style.top = (r.bottom + 6) + 'px';
       loadMenu.style.left = r.left + 'px';
+      loadMenu.classList.remove('hidden');
+      renderLoadMenu();
+    } else {
+      loadMenu.classList.add('hidden');
     }
-    loadMenu.classList.toggle('hidden');
   });
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.dropdown-wrap')) loadMenu.classList.add('hidden');
