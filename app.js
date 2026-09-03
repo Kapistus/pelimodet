@@ -60,8 +60,6 @@
   const btnLoadToggle = document.getElementById('btnLoadToggle');
   const loadMenu = document.getElementById('loadMenu');
 
-  const zoomInBtn = document.getElementById('zoomIn');
-  const zoomOutBtn = document.getElementById('zoomOut');
   const zoomFitBtn = document.getElementById('zoomFit');
 
   const editPanel = document.getElementById('editPanel');
@@ -187,11 +185,18 @@
     return { x: state.tx + wx * state.scale, y: state.ty + wy * state.scale };
   }
 
+  const BASE_MARKER_W = 22;
+  const BASE_MARKER_H = 28;
+
   function updateMarkerPositions() {
     // Markers live in a separate, un-scaled overlay layer (a sibling of #world, not a
-    // descendant of it), so we position each one in plain screen pixels here whenever the
-    // map pans or zooms. Because the marker DOM never sits inside a scaled/rasterized
-    // layer, it's never resampled — it always renders at its natural, crisp pixel size.
+    // descendant of it). We compute their screen position AND their size directly here on
+    // every pan/zoom, so they scale proportionally with the map (smaller when zoomed out,
+    // larger when zoomed in) exactly like an object fixed to the terrain — but because we
+    // resize the actual element (a vector SVG + real text), not stretch a bitmap via CSS
+    // transform, they stay crisp at any size instead of blurring.
+    const w = BASE_MARKER_W * state.scale;
+    const h = BASE_MARKER_H * state.scale;
     const els = markerLayer.children;
     for (let i = 0; i < els.length; i++) {
       const el = els[i];
@@ -201,6 +206,10 @@
       const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
       el.style.left = sp.x + 'px';
       el.style.top = sp.y + 'px';
+      el.style.width = w + 'px';
+      el.style.height = h + 'px';
+      el.style.marginLeft = (-w / 2) + 'px';
+      el.style.marginTop = (-h * 0.929) + 'px'; // keeps the pin's tip anchored at (sp.x, sp.y)
     }
   }
 
@@ -314,6 +323,7 @@
       attachMarkerDrag(el, m);
       markerLayer.appendChild(el);
     });
+    updateMarkerPositions();
   }
 
   function attachMarkerDrag(el, m) {
@@ -565,8 +575,6 @@
     zoomBy(factor, e.clientX, e.clientY);
   }, { passive: false });
 
-  zoomInBtn.addEventListener('click', () => zoomBy(1.25));
-  zoomOutBtn.addEventListener('click', () => zoomBy(0.8));
   zoomFitBtn.addEventListener('click', () => fitToBBox(state.bbox[state.area]));
 
   areaSelect.addEventListener('change', () => setArea(areaSelect.value));
