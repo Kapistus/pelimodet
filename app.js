@@ -478,9 +478,10 @@
     const baseLeft = { x: backCenter.x + perpX * (headW / 2), y: backCenter.y + perpY * (headW / 2) };
     const baseRight = { x: backCenter.x - perpX * (headW / 2), y: backCenter.y - perpY * (headW / 2) };
 
-    el.innerHTML = `<svg viewBox="0 0 ${boxW} ${boxH}" xmlns="http://www.w3.org/2000/svg">
-      <line x1="${tailLocal.x}" y1="${tailLocal.y}" x2="${shaftEnd.x}" y2="${shaftEnd.y}" stroke="${m.color}" stroke-width="${stroke}" stroke-linecap="round"/>
-      <polygon points="${tipLocal.x},${tipLocal.y} ${baseLeft.x},${baseLeft.y} ${baseRight.x},${baseRight.y}" fill="${m.color}" stroke="#14170f" stroke-width="1"/>
+    el.innerHTML = `<svg viewBox="0 0 ${boxW} ${boxH}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none;">
+      <line x1="${tailLocal.x}" y1="${tailLocal.y}" x2="${shaftEnd.x}" y2="${shaftEnd.y}" stroke="transparent" stroke-width="${Math.max(stroke * 4, 22)}" stroke-linecap="round" pointer-events="stroke"/>
+      <line x1="${tailLocal.x}" y1="${tailLocal.y}" x2="${shaftEnd.x}" y2="${shaftEnd.y}" stroke="${m.color}" stroke-width="${stroke}" stroke-linecap="round" pointer-events="none"/>
+      <polygon points="${tipLocal.x},${tipLocal.y} ${baseLeft.x},${baseLeft.y} ${baseRight.x},${baseRight.y}" fill="${m.color}" stroke="#14170f" stroke-width="1" pointer-events="all"/>
     </svg>`;
 
     if (m.label) {
