@@ -92,6 +92,7 @@
   const marshalEmail = document.getElementById('marshalEmail');
   const btnPublish = document.getElementById('btnPublish');
   const liveIndicator = document.getElementById('liveIndicator');
+  const viewerLayoutTitle = document.getElementById('viewerLayoutTitle');
   const loginModal = document.getElementById('loginModal');
   const loginEmail = document.getElementById('loginEmail');
   const loginPassword = document.getElementById('loginPassword');
@@ -99,25 +100,53 @@
   const loginCancel = document.getElementById('loginCancel');
   const loginSubmit = document.getElementById('loginSubmit');
 
+  const btnShareQr = document.getElementById('btnShareQr');
+  const qrModal = document.getElementById('qrModal');
+  const qrImageWrap = document.getElementById('qrImageWrap');
+  const qrImage = document.getElementById('qrImage');
+  const qrFallbackMsg = document.getElementById('qrFallbackMsg');
+  const qrUrlText = document.getElementById('qrUrlText');
+  const qrCloseBtn = document.getElementById('qrCloseBtn');
+  const qrCopyBtn = document.getElementById('qrCopyBtn');
+
   /* ============================== ICONS ============================== */
 
-  function pinSVG(color, letter) {
+  function badgeMarkup(cx, cy, badge) {
+    if (!badge) return '';
+    return `<circle cx="${cx}" cy="${cy}" r="6.5" fill="#14170f" stroke="#fff" stroke-width="1.2"/>
+      <text x="${cx}" y="${cy + 2.6}" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="7.5" font-weight="700" fill="#fff">${badge}</text>`;
+  }
+
+  function pinSVG(color, letter, badge) {
     return `<svg viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg">
       <path d="M16 0C7.2 0 0 7.2 0 16c0 11 16 26 16 26s16-15 16-26C32 7.2 24.8 0 16 0z" fill="${color}" stroke="#14170f" stroke-width="1.5"/>
       <circle cx="16" cy="16" r="9.5" fill="rgba(255,255,255,0.92)"/>
       <text x="16" y="20.5" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="700" fill="${color}">${letter}</text>
+      ${badgeMarkup(26, 8, badge)}
     </svg>`;
   }
 
-  function flagSVG(color) {
+  function flagSVG(color, badge) {
     return `<svg viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg">
       <line x1="7" y1="40" x2="7" y2="3" stroke="#cfd3c4" stroke-width="3" stroke-linecap="round"/>
       <polygon points="7,4 28,11 7,19" fill="${color}" stroke="#14170f" stroke-width="1.2"/>
+      ${badgeMarkup(25, 32, badge)}
     </svg>`;
   }
 
+  // Color is not a reliable signal alone for colorblind viewers, so team-relevant markers
+  // (start/respawn/flag) get a small text badge — R/Y/B/G — matching the marshal calendar's
+  // existing red/yellow/blue/green convention, whenever their color is one of those four.
+  function teamLetterForColor(hex) {
+    const idx = FLAG_COLORS.indexOf(hex);
+    return idx >= 0 ? FLAG_COLOR_NAMES[idx][0] : null;
+  }
+
   function markerSVG(m) {
-    return m.kind === 'flag' ? flagSVG(m.color) : pinSVG(m.color, m.letter || '?');
+    const badge = (m.type === 'start' || m.type === 'respawn' || m.type === 'flag')
+      ? teamLetterForColor(m.color)
+      : null;
+    return m.kind === 'flag' ? flagSVG(m.color, badge) : pinSVG(m.color, m.letter || '?', badge);
   }
 
   function arrowPreviewSVG(color) {
@@ -132,7 +161,7 @@
   document.querySelectorAll('.palette-icon').forEach(el => {
     const kind = el.getAttribute('data-icon');
     let svg;
-    if (kind === 'flag') svg = flagSVG(FLAG_COLORS[0]);
+    if (kind === 'flag') svg = flagSVG('#ffffff');
     else if (kind === 'custom') svg = pinSVG(customColorInput.value, '?');
     else if (kind === 'arrow') svg = arrowPreviewSVG(FLAG_COLORS[0]);
     else svg = pinSVG(FLAG_COLORS[0], TYPE_DEFS[kind].letter);
@@ -313,10 +342,13 @@
 
   /* ============================== MARKERS ============================== */
 
+  const FLAG_COLOR_NAMES = ['RED', 'YELLOW', 'BLUE', 'GREEN']; // parallel to FLAG_COLORS
+
   function labelForNewType(type) {
     const def = TYPE_DEFS[type];
     const existing = state.markers.filter(m => m.type === type).length;
-    return existing > 0 ? `${def.label} ${existing + 1}` : def.label;
+    const base = def.label.toUpperCase();
+    return existing > 0 ? `${base} ${existing + 1}` : base;
   }
 
   function colorForNewOfType(type) {
@@ -334,8 +366,22 @@
     };
     if (type === 'custom') {
       m.color = opts.color || '#a855f7';
-      m.label = opts.label || 'Marker';
+      m.label = opts.label || 'MARKER';
       m.letter = (m.label.trim()[0] || '?').toUpperCase();
+    } else if (type === 'start' || type === 'respawn') {
+      // Named to match the color it's assigned, e.g. "START RED" / "RESPAWN YELLOW",
+      // using the same red/yellow/blue/green cycle as everything else.
+      const existing = state.markers.filter(x2 => x2.type === type).length;
+      const idx = existing % FLAG_COLORS.length;
+      m.color = FLAG_COLORS[idx];
+      m.label = (type === 'start' ? 'START ' : 'RESPAWN ') + FLAG_COLOR_NAMES[idx];
+      m.letter = def.letter;
+    } else if (type === 'flag') {
+      // Flags default to a neutral white — marshals recolor them deliberately per their
+      // own scheme (e.g. a neutral middle flag vs. team-specific flags), rather than an
+      // auto-cycled color.
+      m.color = '#ffffff';
+      m.label = 'FLAG';
     } else {
       m.color = colorForNewOfType(type);
       m.label = labelForNewType(type);
@@ -687,7 +733,10 @@
     const def = TYPE_DEFS[type];
     const ghost = document.createElement('div');
     ghost.className = 'drag-ghost';
-    let previewColor = type === 'custom' ? customColorInput.value : colorForNewOfType(type);
+    let previewColor;
+    if (type === 'custom') previewColor = customColorInput.value;
+    else if (type === 'flag') previewColor = '#ffffff';
+    else previewColor = colorForNewOfType(type);
     if (type === 'arrow') ghost.innerHTML = arrowPreviewSVG(previewColor);
     else ghost.innerHTML = type === 'flag' ? flagSVG(previewColor) : pinSVG(previewColor, def.letter || '?');
     document.body.appendChild(ghost);
@@ -830,6 +879,39 @@
   areaSelect.addEventListener('change', () => setArea(areaSelect.value));
   tintToggle.addEventListener('change', () => { state.tintOn = tintToggle.checked; updateTintVisibility(); });
 
+  /* ---------- Share / QR ---------- */
+  btnShareQr.addEventListener('click', () => {
+    const url = window.location.href;
+    qrUrlText.value = url;
+    qrFallbackMsg.classList.add('hidden');
+    qrImageWrap.classList.remove('hidden');
+    qrImage.onerror = () => {
+      qrImageWrap.classList.add('hidden');
+      qrFallbackMsg.classList.remove('hidden');
+    };
+    qrImage.src = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=' + encodeURIComponent(url);
+    qrModal.classList.remove('hidden');
+  });
+
+  qrCloseBtn.addEventListener('click', () => qrModal.classList.add('hidden'));
+
+  qrCopyBtn.addEventListener('click', async () => {
+    const original = qrCopyBtn.textContent;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(qrUrlText.value);
+      } else {
+        qrUrlText.select();
+        document.execCommand('copy');
+      }
+      qrCopyBtn.textContent = 'Copied ✓';
+    } catch (e) {
+      qrUrlText.select();
+      qrCopyBtn.textContent = 'Select & copy manually';
+    }
+    setTimeout(() => { qrCopyBtn.textContent = original; }, 1500);
+  });
+
   /* ---------- Rules panel ---------- */
   btnRulesToggle.addEventListener('click', () => rulesPanel.classList.toggle('open'));
   btnRulesClose.addEventListener('click', () => rulesPanel.classList.remove('open'));
@@ -867,6 +949,7 @@
   function applyLayoutObject(layout) {
     state.layoutName = layout.name || 'Untitled layout';
     layoutNameInput.value = state.layoutName;
+    viewerLayoutTitle.textContent = state.layoutName;
     state.rules = layout.rules || '';
     rulesTextarea.value = state.rules;
     state.markers = (layout.markers || []).map(m => ({ ...m }));
