@@ -883,15 +883,32 @@
     saveSession();
   }
 
+  async function getMarshalDisplayName(uid, fallbackEmail) {
+    if (sb && uid) {
+      try {
+        const { data } = await sb.from('profiles').select('name').eq('id', uid).maybeSingle();
+        if (data && data.name) return data.name;
+      } catch (e) { /* fall through to email-based fallback */ }
+    }
+    return fallbackEmail ? fallbackEmail.split('@')[0] : '';
+  }
+
   btnSave.addEventListener('click', async () => {
     if (!sb) { alert('Cannot save to the shared library — the login service failed to load. Try reloading the page.'); return; }
-    state.layoutName = layoutNameInput.value.trim() || 'Untitled layout';
+    const baseName = layoutNameInput.value.trim() || 'Untitled layout';
+    state.layoutName = baseName; // the editable title always stays unprefixed
     btnSave.disabled = true;
     try {
       const { data: userData } = await sb.auth.getUser();
-      const uid = userData && userData.user && userData.user.id;
+      const user = userData && userData.user;
+      const uid = user && user.id;
+      const marshalName = await getMarshalDisplayName(uid, user && user.email);
+      // The shared-table name gets the marshal's prefix (e.g. "Kapistus - CTF"); the
+      // layout's own internal name (shown in the editable field) stays just "CTF" so
+      // reloading and re-saving never stacks prefixes on top of each other.
+      const sharedName = marshalName ? (marshalName + ' - ' + baseName) : baseName;
       const { error } = await sb.from('shared_layouts').upsert({
-        name: state.layoutName,
+        name: sharedName,
         layout: currentLayoutObject(),
         created_by: uid || null,
         updated_by: uid || null,
