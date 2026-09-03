@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Field Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Top bar: layout + area controls -->
+  <header class="topbar">
+    <div class="brand">FIELD<span>PLANNER</span></div>
+
+    <div class="topbar-group">
+      <label class="field">
+        <span class="field-label">Layout</span>
+        <input id="layoutNameInput" class="text-input" type="text" value="Untitled layout" maxlength="60">
+      </label>
+
+      <button id="btnSave" class="btn btn-accent">Save</button>
+
+      <div class="dropdown-wrap">
+        <button id="btnLoadToggle" class="btn">Load ▾</button>
+        <div id="loadMenu" class="dropdown-menu hidden"></div>
+      </div>
+
+      <button id="btnNew" class="btn">New</button>
+      <button id="btnExport" class="btn">Export</button>
+      <button id="btnImport" class="btn">Import</button>
+      <input id="importFile" type="file" accept="application/json" class="hidden">
+    </div>
+
+    <div class="topbar-group">
+      <label class="field">
+        <span class="field-label">Area</span>
+        <select id="areaSelect" class="text-input">
+          <option value="default">Main area</option>
+          <option value="extended">Extended area</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <div class="main">
+
+    <!-- Left palette -->
+    <aside class="palette">
+      <div class="palette-heading">Elements</div>
+
+      <button class="palette-item" data-type="start" draggable="false">
+        <span class="palette-icon" data-icon="start"></span>
+        <span>Starting Point</span>
+      </button>
+
+      <button class="palette-item" data-type="respawn" draggable="false">
+        <span class="palette-icon" data-icon="respawn"></span>
+        <span>Respawn Point</span>
+      </button>
+
+      <button class="palette-item" data-type="mortar" draggable="false">
+        <span class="palette-icon" data-icon="mortar"></span>
+        <span>Mortar</span>
+      </button>
+
+      <button class="palette-item" data-type="flag" draggable="false">
+        <span class="palette-icon" data-icon="flag"></span>
+        <span>Flag</span>
+      </button>
+
+      <div class="palette-divider"></div>
+
+      <button class="palette-item" data-type="custom" draggable="false">
+        <span class="palette-icon" data-icon="custom"></span>
+        <span>Custom Marker</span>
+      </button>
+      <label class="custom-color-row">
+        <span class="field-label">Color</span>
+        <input id="customColorInput" type="color" value="#a855f7">
+      </label>
+
+      <div class="palette-divider"></div>
+
+      <label class="tint-row">
+        <input id="tintToggle" type="checkbox" checked>
+        <span>Show area boundary</span>
+      </label>
+
+      <div class="palette-hint">Press and drag an element onto the map to place it. Tap a placed marker to edit or remove it.</div>
+    </aside>
+
+    <!-- Map viewport -->
+    <div id="viewport" class="viewport">
+      <div id="world" class="world">
+        <img id="baseMap" class="map-layer" src="assets/pelialue.png" alt="Field map">
+        <div id="maskDefault" class="map-layer mask-layer mask-default"></div>
+        <div id="maskExtended" class="map-layer mask-layer mask-extended"></div>
+        <div id="markerLayer" class="marker-layer"></div>
+      </div>
+
+      <div class="zoom-controls">
+        <button id="zoomIn" class="zoom-btn">+</button>
+        <button id="zoomFit" class="zoom-btn zoom-btn-small">fit</button>
+        <button id="zoomOut" class="zoom-btn">−</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Marker edit panel (slides up when a marker is selected) -->
+  <div id="editPanel" class="edit-panel hidden">
+    <div class="field">
+      <span class="field-label">Name</span>
+      <input id="editName" class="text-input" type="text" maxlength="40">
+    </div>
+    <div class="field">
+      <span class="field-label">Color</span>
+      <input id="editColor" type="color">
+    </div>
+    <button id="editDelete" class="btn btn-danger">Delete</button>
+    <button id="editClose" class="btn">Done</button>
+  </div>
+
+</div>
+
+<!-- Generic naming modal (used for custom marker placement) -->
+<div id="nameModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-title">Name this marker</div>
+    <input id="nameModalInput" class="text-input" type="text" maxlength="40" placeholder="e.g. Ammo cache">
+    <div class="modal-actions">
+      <button id="nameModalCancel" class="btn">Cancel</button>
+      <button id="nameModalConfirm" class="btn btn-accent">Place</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
