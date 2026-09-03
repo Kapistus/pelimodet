@@ -8,8 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
-<body>
+<body class="viewer-mode">
 
 <div class="app">
 
@@ -18,21 +19,21 @@
     <div class="brand">FIELD<span>PLANNER</span></div>
 
     <div class="topbar-group">
-      <label class="field">
+      <label class="field marshal-only">
         <span class="field-label">Layout</span>
         <input id="layoutNameInput" class="text-input" type="text" value="Untitled layout" maxlength="60">
       </label>
 
-      <button id="btnSave" class="btn btn-accent">Save</button>
+      <button id="btnSave" class="btn btn-accent marshal-only">Save</button>
 
-      <div class="dropdown-wrap">
+      <div class="dropdown-wrap marshal-only">
         <button id="btnLoadToggle" class="btn">Load ▾</button>
         <div id="loadMenu" class="dropdown-menu hidden"></div>
       </div>
 
-      <button id="btnNew" class="btn">New</button>
-      <button id="btnExport" class="btn">Export</button>
-      <button id="btnImport" class="btn">Import</button>
+      <button id="btnNew" class="btn marshal-only">New</button>
+      <button id="btnExport" class="btn marshal-only">Export</button>
+      <button id="btnImport" class="btn marshal-only">Import</button>
       <input id="importFile" type="file" accept="application/json" class="hidden">
     </div>
 
@@ -46,12 +47,22 @@
       </label>
       <button id="btnRulesToggle" class="btn">Rules</button>
     </div>
+
+    <div class="topbar-group topbar-group-end">
+      <span id="liveIndicator" class="live-indicator hidden">
+        <span class="live-dot"></span>Live briefing
+      </span>
+      <button id="btnPublish" class="btn btn-accent marshal-only">Publish to live view</button>
+      <span id="marshalEmail" class="marshal-email hidden"></span>
+      <button id="btnMarshalLogin" class="btn">Marshal login</button>
+      <button id="btnMarshalLogout" class="btn hidden">Log out</button>
+    </div>
   </header>
 
   <div class="main">
 
     <!-- Left palette -->
-    <aside class="palette">
+    <aside class="palette marshal-only">
       <div class="palette-heading">Elements</div>
 
       <button class="palette-item" data-type="start" draggable="false">
@@ -152,6 +163,20 @@
     <div class="modal-actions">
       <button id="nameModalCancel" class="btn">Cancel</button>
       <button id="nameModalConfirm" class="btn btn-accent">Place</button>
+    </div>
+  </div>
+</div>
+
+<!-- Marshal login modal -->
+<div id="loginModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-title">Marshal login</div>
+    <div id="loginError" class="login-error hidden"></div>
+    <input id="loginEmail" class="text-input" type="email" placeholder="Email" autocomplete="username">
+    <input id="loginPassword" class="text-input" type="password" placeholder="Password" autocomplete="current-password">
+    <div class="modal-actions">
+      <button id="loginCancel" class="btn">Cancel</button>
+      <button id="loginSubmit" class="btn btn-accent">Log in</button>
     </div>
   </div>
 </div>
