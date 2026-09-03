@@ -17,6 +17,7 @@
   <!-- Top bar: layout + area controls -->
   <header class="topbar">
     <div class="brand">FIELD<span>PLANNER</span></div>
+    <span id="viewerLayoutTitle" class="viewer-layout-title viewer-only"></span>
 
     <div class="topbar-group">
       <label class="field marshal-only">
@@ -38,7 +39,7 @@
     </div>
 
     <div class="topbar-group">
-      <label class="field">
+      <label class="field marshal-only">
         <span class="field-label">Area</span>
         <select id="areaSelect" class="text-input">
           <option value="default">Main area</option>
@@ -46,6 +47,7 @@
         </select>
       </label>
       <button id="btnRulesToggle" class="btn">Rules</button>
+      <button id="btnShareQr" class="btn">Share</button>
     </div>
 
     <div class="topbar-group topbar-group-end">
@@ -129,7 +131,7 @@
     </div>
 
     <!-- Rules side panel -->
-    <aside id="rulesPanel" class="rules-panel">
+    <aside id="rulesPanel" class="rules-panel open">
       <div class="rules-panel-header">
         <span class="palette-heading">Rules</span>
         <button id="btnRulesClose" class="rules-close-btn" aria-label="Hide rules panel">&times;</button>
@@ -177,6 +179,22 @@
     <div class="modal-actions">
       <button id="loginCancel" class="btn">Cancel</button>
       <button id="loginSubmit" class="btn btn-accent">Log in</button>
+    </div>
+  </div>
+</div>
+
+<!-- Share / QR modal -->
+<div id="qrModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-title">Scan to open this briefing</div>
+    <div id="qrImageWrap" class="qr-image-wrap">
+      <img id="qrImage" alt="QR code linking to this page" width="220" height="220">
+    </div>
+    <div id="qrFallbackMsg" class="login-error hidden">Could not load the QR code — copy the link below instead.</div>
+    <input id="qrUrlText" class="text-input" type="text" readonly>
+    <div class="modal-actions">
+      <button id="qrCloseBtn" class="btn">Close</button>
+      <button id="qrCopyBtn" class="btn btn-accent">Copy link</button>
     </div>
   </div>
 </div>
