@@ -65,6 +65,9 @@
   const btnNew = document.getElementById('btnNew');
   const btnLoadToggle = document.getElementById('btnLoadToggle');
   const loadMenu = document.getElementById('loadMenu');
+  const loadMenuList = document.getElementById('loadMenuList');
+  const loadSearchInput = document.getElementById('loadSearchInput');
+  const loadOnlyMine = document.getElementById('loadOnlyMine');
 
   const zoomFitBtn = document.getElementById('zoomFit');
 
@@ -77,6 +80,7 @@
   const editName = document.getElementById('editName');
   const editColor = document.getElementById('editColor');
   const editDelete = document.getElementById('editDelete');
+  const editSpotlight = document.getElementById('editSpotlight');
   const editClose = document.getElementById('editClose');
 
   const nameModal = document.getElementById('nameModal');
@@ -993,6 +997,23 @@
       // layout's own internal name (shown in the editable field) stays just "CTF" so
       // reloading and re-saving never stacks prefixes on top of each other.
       const sharedName = marshalName ? (marshalName + ' - ' + baseName) : baseName;
+
+      // Warn before silently clobbering an existing entry under this exact name.
+      const { data: existing } = await sb
+        .from('shared_layouts')
+        .select('updated_by, updated_at')
+        .eq('name', sharedName)
+        .maybeSingle();
+      if (existing) {
+        let editorNote = '';
+        if (existing.updated_by && existing.updated_by !== uid) {
+          const otherName = await getMarshalDisplayName(existing.updated_by, null);
+          editorNote = otherName ? ` It was last edited by ${otherName}.` : ' It was last edited by another marshal.';
+        }
+        const proceed = confirm(`"${sharedName}" already exists.${editorNote} Overwrite it?`);
+        if (!proceed) { btnSave.disabled = false; return; }
+      }
+
       const { error } = await sb.from('shared_layouts').upsert({
         name: sharedName,
         layout: currentLayoutObject(),
@@ -1019,32 +1040,49 @@
     setTimeout(() => { btn.textContent = original; }, 1200);
   }
 
+  let loadMenuAllRows = [];
+  let loadMenuCurrentUid = null;
+
   async function renderLoadMenu() {
-    loadMenu.innerHTML = '<div class="dropdown-empty">Loading…</div>';
+    loadMenuList.innerHTML = '<div class="dropdown-empty">Loading…</div>';
     if (!sb) {
-      loadMenu.innerHTML = '<div class="dropdown-empty">Unavailable — the login service failed to load.</div>';
+      loadMenuList.innerHTML = '<div class="dropdown-empty">Unavailable — the login service failed to load.</div>';
       return;
     }
+    const { data: userData } = await sb.auth.getUser();
+    loadMenuCurrentUid = userData && userData.user && userData.user.id;
+
     const { data, error } = await sb
       .from('shared_layouts')
-      .select('id, name, updated_at')
+      .select('id, name, created_by, updated_at')
       .order('name', { ascending: true });
 
     if (error) {
-      loadMenu.innerHTML = '<div class="dropdown-empty">Could not load the shared library.</div>';
+      loadMenuList.innerHTML = '<div class="dropdown-empty">Could not load the shared library.</div>';
       return;
     }
+    loadMenuAllRows = data || [];
+    renderLoadMenuList();
+  }
 
-    loadMenu.innerHTML = '';
-    if (!data || data.length === 0) {
+  function renderLoadMenuList() {
+    const searchVal = loadSearchInput.value.trim().toLowerCase();
+    const onlyMine = loadOnlyMine.checked;
+
+    let rows = loadMenuAllRows;
+    if (onlyMine && loadMenuCurrentUid) rows = rows.filter(r => r.created_by === loadMenuCurrentUid);
+    if (searchVal) rows = rows.filter(r => r.name.toLowerCase().includes(searchVal));
+
+    loadMenuList.innerHTML = '';
+    if (rows.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'dropdown-empty';
-      empty.textContent = 'No shared game modes yet.';
-      loadMenu.appendChild(empty);
+      empty.textContent = loadMenuAllRows.length === 0 ? 'No shared game modes yet.' : 'No matches.';
+      loadMenuList.appendChild(empty);
       return;
     }
 
-    data.forEach(row => {
+    rows.forEach(row => {
       const rowEl = document.createElement('div');
       rowEl.className = 'dropdown-item';
       const label = document.createElement('span');
@@ -1070,13 +1108,19 @@
         if (!confirm('Remove "' + row.name + '" for everyone? This cannot be undone.')) return;
         const { error: delErr } = await sb.from('shared_layouts').delete().eq('id', row.id);
         if (delErr) { alert('Could not remove: ' + delErr.message); return; }
-        renderLoadMenu();
+        loadMenuAllRows = loadMenuAllRows.filter(r => r.id !== row.id);
+        renderLoadMenuList();
       });
       rowEl.appendChild(label);
       rowEl.appendChild(del);
-      loadMenu.appendChild(rowEl);
+      loadMenuList.appendChild(rowEl);
     });
   }
+
+  loadSearchInput.addEventListener('input', renderLoadMenuList);
+  loadOnlyMine.addEventListener('change', renderLoadMenuList);
+  loadSearchInput.addEventListener('click', (e) => e.stopPropagation());
+  loadOnlyMine.addEventListener('click', (e) => e.stopPropagation());
 
   btnLoadToggle.addEventListener('click', () => {
     const wasHidden = loadMenu.classList.contains('hidden');
@@ -1252,10 +1296,12 @@
     }
   }
 
+  let liveChannel = null;
+
   function subscribeLiveBriefing() {
     if (!sb) return;
     try {
-      sb.channel('field_briefing_' + BRIEFING_ID)
+      liveChannel = sb.channel('field_briefing_' + BRIEFING_ID)
         .on('postgres_changes',
           { event: '*', schema: 'public', table: 'field_briefing', filter: 'id=eq.' + BRIEFING_ID },
           (payload) => {
@@ -1266,11 +1312,38 @@
               liveIndicator.classList.remove('hidden');
             }
           })
+        .on('broadcast', { event: 'spotlight' }, (msg) => {
+          // Transient "look here" pulse during a live briefing — never persisted, just
+          // a momentary highlight pushed to whoever's currently watching.
+          if (!state.isMarshal) {
+            spotlightMarker(msg.payload && msg.payload.markerId);
+          }
+        })
         .subscribe();
     } catch (e) {
       console.error('[FieldPlanner] Could not subscribe to live briefing updates:', e);
     }
   }
+
+  function spotlightMarker(markerId) {
+    if (!markerId) return;
+    const el = markerLayer.querySelector('[data-id="' + markerId + '"]');
+    if (!el) return;
+    el.classList.add('spotlight');
+    setTimeout(() => el.classList.remove('spotlight'), 2800);
+  }
+
+  function sendSpotlight(markerId) {
+    if (!liveChannel) return;
+    liveChannel.send({ type: 'broadcast', event: 'spotlight', payload: { markerId } });
+  }
+
+  editSpotlight.addEventListener('click', () => {
+    if (!state.selectedId) return;
+    spotlightMarker(state.selectedId); // instant local feedback for the marshal too
+    sendSpotlight(state.selectedId);
+    flashButton(editSpotlight, 'Sent ✓');
+  });
 
   /* ============================== INIT ============================== */
 
