@@ -29,7 +29,16 @@
 
       <div class="dropdown-wrap marshal-only">
         <button id="btnLoadToggle" class="btn">Load ▾</button>
-        <div id="loadMenu" class="dropdown-menu hidden"></div>
+        <div id="loadMenu" class="dropdown-menu hidden">
+          <div class="dropdown-toolbar">
+            <input id="loadSearchInput" type="text" class="text-input dropdown-search" placeholder="Search game modes…">
+            <label class="dropdown-onlymine">
+              <input id="loadOnlyMine" type="checkbox">
+              <span>Only mine</span>
+            </label>
+          </div>
+          <div id="loadMenuList" class="dropdown-list"></div>
+        </div>
       </div>
 
       <button id="btnNew" class="btn marshal-only">New</button>
@@ -148,6 +157,7 @@
       <span class="field-label">Color</span>
       <input id="editColor" type="color">
     </div>
+    <button id="editSpotlight" class="btn">Spotlight</button>
     <button id="editDelete" class="btn btn-danger">Delete</button>
     <button id="editClose" class="btn">Done</button>
   </div>
