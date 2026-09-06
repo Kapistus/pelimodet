@@ -28,10 +28,10 @@
       <button id="btnSave" class="btn btn-accent marshal-only">Save</button>
 
       <div class="dropdown-wrap marshal-only">
-        <button id="btnLoadToggle" class="btn">Load ▾</button>
+        <button id="btnLoadToggle" class="btn">Load &#9662;</button>
         <div id="loadMenu" class="dropdown-menu hidden">
           <div class="dropdown-toolbar">
-            <input id="loadSearchInput" type="text" class="text-input dropdown-search" placeholder="Search game modes…">
+            <input id="loadSearchInput" type="text" class="text-input dropdown-search" placeholder="Search game modes&hellip;">
             <label class="dropdown-onlymine">
               <input id="loadOnlyMine" type="checkbox">
               <span>Only mine</span>
@@ -52,6 +52,7 @@
           <option value="extended">Extended area</option>
         </select>
       </label>
+      <button id="btnDraw" class="btn marshal-only">Draw</button>
       <button id="btnRulesToggle" class="btn">Rules</button>
       <button id="btnShareQr" class="btn">Share</button>
     </div>
@@ -144,6 +145,13 @@
         <div id="maskExtended" class="map-layer mask-layer mask-extended"></div>
       </div>
       <div id="markerLayer" class="marker-layer"></div>
+      <canvas id="drawCanvas" class="draw-canvas"></canvas>
+
+      <div id="drawBanner" class="draw-banner hidden">
+        <span class="draw-dot"></span>
+        <span class="draw-banner-text">Draw mode &mdash; drag to point. Strokes fade after a few seconds.</span>
+        <button id="btnDrawExit" class="draw-banner-exit">Exit</button>
+      </div>
 
       <div class="zoom-controls">
         <button id="zoomFit" class="zoom-btn zoom-btn-small">fit</button>
@@ -156,7 +164,7 @@
         <span class="palette-heading">Rules</span>
         <button id="btnRulesClose" class="rules-close-btn" aria-label="Hide rules panel">&times;</button>
       </div>
-      <textarea id="rulesTextarea" class="rules-textarea" placeholder="Write the rules for this game mode here — objectives, scoring, respawn conditions, anything players need to know."></textarea>
+      <textarea id="rulesTextarea" class="rules-textarea" placeholder="Write the rules for this game mode here &mdash; objectives, scoring, respawn conditions, anything players need to know."></textarea>
     </aside>
 
   </div>
@@ -211,7 +219,7 @@
     <div id="qrImageWrap" class="qr-image-wrap">
       <img id="qrImage" alt="QR code linking to this page" width="220" height="220">
     </div>
-    <div id="qrFallbackMsg" class="login-error hidden">Could not load the QR code — copy the link below instead.</div>
+    <div id="qrFallbackMsg" class="login-error hidden">Could not load the QR code &mdash; copy the link below instead.</div>
     <input id="qrUrlText" class="text-input" type="text" readonly>
     <div class="modal-actions">
       <button id="qrCloseBtn" class="btn">Close</button>
