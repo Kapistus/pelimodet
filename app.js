@@ -1664,6 +1664,8 @@
   const LASER_WIDTH = 3;             // stroke width in screen px at scale 1
   const LASER_TIP_LEN = 12;          // arrowhead length (screen px at scale 1) at the live end
   const LASER_TIP_WIDTH = 11;        // arrowhead width (screen px at scale 1)
+  const LASER_TIP_COLOR = '#ff8f87'; // the ">" direction marker — a lighter shade of red so it
+                                     // stands out against the deeper red of the trailing line
   const LASER_SEND_INTERVAL_MS = 40; // throttle broadcasts (~25/sec) to stay smooth & light
 
   const drawCtx = drawCanvas.getContext('2d');
@@ -1899,7 +1901,10 @@
       const leftX = backX + perpX * (headW / 2), leftY = backY + perpY * (headW / 2);
       const rightX = backX - perpX * (headW / 2), rightY = backY - perpY * (headW / 2);
       // Draw as an open ">" (two strokes meeting at the tip) rather than a filled triangle,
-      // so it reads as a chevron/direction mark, matching the request.
+      // so it reads as a chevron/direction mark, matching the request. It gets its own
+      // (lighter) red and matching glow so the direction marker stands out from the shaft.
+      drawCtx.strokeStyle = LASER_TIP_COLOR;
+      drawCtx.shadowColor = LASER_TIP_COLOR;
       drawCtx.beginPath();
       drawCtx.moveTo(leftX, leftY);
       drawCtx.lineTo(lsp.x, lsp.y);
