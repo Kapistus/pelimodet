@@ -1858,22 +1858,37 @@
     }
     drawCtx.stroke();
 
-    // Arrowhead ( > ) at the live (last) end, pointing along the stroke's direction of travel.
-    // Direction comes from the last two distinct points; if the stroke is a single point (no
-    // movement yet), there's no meaningful direction, so nothing is drawn until it moves.
+    // Arrowhead ( > ) at the live (last) end, pointing along the stroke's recent direction.
+    // Taking the angle from just the final two points makes it jitter, because near the end
+    // of a gesture consecutive points are often a pixel apart and hand-tremor/sampling noise
+    // dominates. Instead we walk back from the tip accumulating on-screen distance until we've
+    // covered a "tail" segment (a few times the arrowhead's own length), and take the direction
+    // from where that tail begins to the tip — averaging out the wobble. For a stroke too short
+    // to fill that length, we fall back to its overall start→tip direction.
     const last = s.points[s.points.length - 1];
     const lsp = worldToScreen(last.x * state.naturalW, last.y * state.naturalH);
 
+    const headLen = Math.max(6, LASER_TIP_LEN * state.scale);
+    const tailTarget = headLen * 5; // how far back along the line to look for a stable heading
+
     let dir = null;
+    let accum = 0;
+    let refPt = null;              // the point ~tailTarget px back from the tip
+    let nextScreen = lsp;
     for (let i = s.points.length - 2; i >= 0; i--) {
-      const prev = worldToScreen(s.points[i].x * state.naturalW, s.points[i].y * state.naturalH);
-      const dx = lsp.x - prev.x, dy = lsp.y - prev.y;
+      const sp = worldToScreen(s.points[i].x * state.naturalW, s.points[i].y * state.naturalH);
+      accum += Math.hypot(nextScreen.x - sp.x, nextScreen.y - sp.y);
+      nextScreen = sp;
+      refPt = sp;
+      if (accum >= tailTarget) break; // covered enough of the tail for a steady average
+    }
+    if (refPt) {
+      const dx = lsp.x - refPt.x, dy = lsp.y - refPt.y;
       const len = Math.hypot(dx, dy);
-      if (len > 0.5) { dir = { x: dx / len, y: dy / len }; break; }
+      if (len > 0.5) dir = { x: dx / len, y: dy / len };
     }
 
     if (dir) {
-      const headLen = Math.max(6, LASER_TIP_LEN * state.scale);
       const headW = Math.max(5, LASER_TIP_WIDTH * state.scale);
       const perpX = -dir.y, perpY = dir.x;
       const backX = lsp.x - dir.x * headLen, backY = lsp.y - dir.y * headLen;
