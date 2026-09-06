@@ -1659,10 +1659,11 @@
   // viewer sees them drawn live. Points are stored in world-fraction coordinates so they
   // land in the right place on every device regardless of that device's own pan/zoom.
 
-  const LASER_LIFETIME_MS = 10000;   // how long a completed stroke stays before fully gone
+  const LASER_LIFETIME_MS = 5000;    // how long a completed stroke stays before fully gone
   const LASER_FADE_MS = 1200;        // fade-out duration at the end of a stroke's life
   const LASER_WIDTH = 3;             // stroke width in screen px at scale 1
-  const LASER_TIP_RADIUS = 5;        // the pointer dot at the live end
+  const LASER_TIP_LEN = 12;          // arrowhead length (screen px at scale 1) at the live end
+  const LASER_TIP_WIDTH = 11;        // arrowhead width (screen px at scale 1)
   const LASER_SEND_INTERVAL_MS = 40; // throttle broadcasts (~25/sec) to stay smooth & light
 
   const drawCtx = drawCanvas.getContext('2d');
@@ -1857,13 +1858,35 @@
     }
     drawCtx.stroke();
 
-    // Pointer dot at the live (last) end of the stroke.
+    // Arrowhead ( > ) at the live (last) end, pointing along the stroke's direction of travel.
+    // Direction comes from the last two distinct points; if the stroke is a single point (no
+    // movement yet), there's no meaningful direction, so nothing is drawn until it moves.
     const last = s.points[s.points.length - 1];
     const lsp = worldToScreen(last.x * state.naturalW, last.y * state.naturalH);
-    drawCtx.beginPath();
-    drawCtx.fillStyle = s.color;
-    drawCtx.arc(lsp.x, lsp.y, Math.max(2, LASER_TIP_RADIUS * state.scale), 0, Math.PI * 2);
-    drawCtx.fill();
+
+    let dir = null;
+    for (let i = s.points.length - 2; i >= 0; i--) {
+      const prev = worldToScreen(s.points[i].x * state.naturalW, s.points[i].y * state.naturalH);
+      const dx = lsp.x - prev.x, dy = lsp.y - prev.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0.5) { dir = { x: dx / len, y: dy / len }; break; }
+    }
+
+    if (dir) {
+      const headLen = Math.max(6, LASER_TIP_LEN * state.scale);
+      const headW = Math.max(5, LASER_TIP_WIDTH * state.scale);
+      const perpX = -dir.y, perpY = dir.x;
+      const backX = lsp.x - dir.x * headLen, backY = lsp.y - dir.y * headLen;
+      const leftX = backX + perpX * (headW / 2), leftY = backY + perpY * (headW / 2);
+      const rightX = backX - perpX * (headW / 2), rightY = backY - perpY * (headW / 2);
+      // Draw as an open ">" (two strokes meeting at the tip) rather than a filled triangle,
+      // so it reads as a chevron/direction mark, matching the request.
+      drawCtx.beginPath();
+      drawCtx.moveTo(leftX, leftY);
+      drawCtx.lineTo(lsp.x, lsp.y);
+      drawCtx.lineTo(rightX, rightY);
+      drawCtx.stroke();
+    }
     drawCtx.restore();
   }
 
