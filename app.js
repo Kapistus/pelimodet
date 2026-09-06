@@ -1871,28 +1871,30 @@
     const lsp = worldToScreen(last.x * state.naturalW, last.y * state.naturalH);
 
     const headLen = Math.max(6, LASER_TIP_LEN * state.scale);
-    const tailTarget = headLen * 4; // how far back along the line to look for a stable heading.
-    // Shorter windows track turns more promptly (less lag) but let end-of-stroke jitter back
-    // in; longer ones smooth jitter but lag on turns. ~4x the head length sits at the sweet
-    // spot in testing: jitter on a straight stroke averages out to ~3 deg off, while a sharp
-    // turn is tracked with essentially no lag.
+    const tailTarget = headLen * 2; // how far back along the line to average the heading over.
+    // We average the *unit* direction of each little segment within this window rather than
+    // just taking tip-minus-one-old-point. Two reasons: (1) a short window (~2x head length)
+    // stays close to the tip, so a sharp turn is picked up almost immediately instead of the
+    // arrow lagging back along the pre-turn leg; (2) normalizing each segment before summing
+    // lets opposing hand-tremor wobbles cancel cleanly, so the short window doesn't reintroduce
+    // the jitter that a raw two-point measurement would. Testing: ~4 deg off on a jittery
+    // straight stroke, and a corner is tracked within a few px of movement past it.
 
     let dir = null;
     let accum = 0;
-    let refPt = null;              // the point ~tailTarget px back from the tip
+    let sumX = 0, sumY = 0;
     let nextScreen = lsp;
     for (let i = s.points.length - 2; i >= 0; i--) {
       const sp = worldToScreen(s.points[i].x * state.naturalW, s.points[i].y * state.naturalH);
-      accum += Math.hypot(nextScreen.x - sp.x, nextScreen.y - sp.y);
+      const vx = nextScreen.x - sp.x, vy = nextScreen.y - sp.y; // travel dir: old -> newer
+      const segLen = Math.hypot(vx, vy);
+      if (segLen > 1e-4) { sumX += vx / segLen; sumY += vy / segLen; }
+      accum += segLen;
       nextScreen = sp;
-      refPt = sp;
-      if (accum >= tailTarget) break; // covered enough of the tail for a steady average
+      if (accum >= tailTarget) break; // enough of the tail sampled for a steady heading
     }
-    if (refPt) {
-      const dx = lsp.x - refPt.x, dy = lsp.y - refPt.y;
-      const len = Math.hypot(dx, dy);
-      if (len > 0.5) dir = { x: dx / len, y: dy / len };
-    }
+    const sumLen = Math.hypot(sumX, sumY);
+    if (sumLen > 1e-6) dir = { x: sumX / sumLen, y: sumY / sumLen };
 
     if (dir) {
       const headW = Math.max(5, LASER_TIP_WIDTH * state.scale);
