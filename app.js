@@ -14,6 +14,7 @@
     flag:    { label: 'Flag',           kind: 'flag' },
     custom:  { label: 'Custom Marker',  kind: 'pin' },
     arrow:   { label: 'Arrow',          kind: 'arrow' },
+    area:    { label: 'Area',           kind: 'area' },
   };
 
   // Arrowhead size is fixed relative to the base marker scale — it never stretches with
@@ -22,6 +23,10 @@
   const ARROW_HEAD_WIDTH = 13;
   const ARROW_STROKE = 4;
   const ARROW_DEFAULT_LEN_WORLD = 90; // default shaft length (world px) when first placed
+
+  const AREA_DEFAULT_HALF_WORLD = 55; // half-width of the default square when first placed
+  const AREA_FILL_OPACITY = 0.32;
+  const AREA_STROKE_WIDTH = 2.5;
 
   const MIN_SCALE = 0.15;
   const MAX_SCALE = 6;
@@ -54,6 +59,8 @@
   const baseMap = document.getElementById('baseMap');
   const maskDefault = document.getElementById('maskDefault');
   const maskExtended = document.getElementById('maskExtended');
+  const maskBorderDefault = document.getElementById('maskBorderDefault');
+  const maskBorderExtended = document.getElementById('maskBorderExtended');
   const markerLayer = document.getElementById('markerLayer');
 
   const areaSelect = document.getElementById('areaSelect');
@@ -84,6 +91,7 @@
   const editClose = document.getElementById('editClose');
 
   const nameModal = document.getElementById('nameModal');
+  const nameModalTitle = document.getElementById('nameModalTitle');
   const nameModalInput = document.getElementById('nameModalInput');
   const nameModalCancel = document.getElementById('nameModalCancel');
   const nameModalConfirm = document.getElementById('nameModalConfirm');
@@ -158,6 +166,14 @@
     </svg>`;
   }
 
+  function areaPreviewSVG(color) {
+    return `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="4,6 28,4 26,26 2,24" fill="${color}" fill-opacity="0.4" stroke="${color}" stroke-width="2"/>
+    </svg>`;
+  }
+
+  const areaColorInput = document.getElementById('areaColorInput');
+
   // Populate static palette icons (preview only — actual color is assigned per the cycle at drop time)
   document.querySelectorAll('.palette-icon').forEach(el => {
     const kind = el.getAttribute('data-icon');
@@ -165,6 +181,7 @@
     if (kind === 'flag') svg = flagSVG('#ffffff');
     else if (kind === 'custom') svg = pinSVG(customColorInput.value, '?');
     else if (kind === 'arrow') svg = arrowPreviewSVG(FLAG_COLORS[0]);
+    else if (kind === 'area') svg = areaPreviewSVG(areaColorInput.value);
     else svg = pinSVG(FLAG_COLORS[0], TYPE_DEFS[kind].letter);
     el.innerHTML = svg;
   });
@@ -172,6 +189,11 @@
   customColorInput.addEventListener('input', () => {
     const el = document.querySelector('.palette-icon[data-icon="custom"]');
     if (el) el.innerHTML = pinSVG(customColorInput.value, '?');
+  });
+
+  areaColorInput.addEventListener('input', () => {
+    const el = document.querySelector('.palette-icon[data-icon="area"]');
+    if (el) el.innerHTML = areaPreviewSVG(areaColorInput.value);
   });
 
   /* ============================== BBOX (zoom-to-fit) ============================== */
@@ -208,6 +230,58 @@
         showLoadWarning(src);
         resolve({ minX: 0, minY: 0, maxX: 100, maxY: 100 });
       };
+      img.src = src;
+    });
+  }
+
+  function computeRingDataUrl(src, ringPx) {
+    // Generates a thin ring-shaped alpha mask just outside the original shape's edge, by
+    // dilating the alpha channel outward and keeping only the newly-added pixels. Used to
+    // give the area boundary a genuinely separate, brighter border shape rather than trying
+    // to fake one by layering translucent colors (which doesn't work — a semi-transparent
+    // fill over an opaque layer of the identical shape lets color bleed through everywhere,
+    // not just at the edge).
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth, h = img.naturalHeight;
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const srcData = ctx.getImageData(0, 0, w, h);
+        const alpha = new Uint8ClampedArray(w * h);
+        for (let i = 0; i < w * h; i++) alpha[i] = srcData.data[i * 4 + 3];
+
+        // Sample a small ring of offsets around each pixel to approximate a circular dilation.
+        const steps = 8;
+        const offsets = [[0, 0]];
+        for (let a = 0; a < steps; a++) {
+          const ang = (a / steps) * Math.PI * 2;
+          offsets.push([Math.round(Math.cos(ang) * ringPx), Math.round(Math.sin(ang) * ringPx)]);
+        }
+
+        const out = ctx.createImageData(w, h);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            let dilated = 0;
+            for (let k = 0; k < offsets.length; k++) {
+              const nx = x + offsets[k][0], ny = y + offsets[k][1];
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                const v = alpha[ny * w + nx];
+                if (v > dilated) dilated = v;
+              }
+            }
+            const idx = y * w + x;
+            const ring = Math.max(0, dilated - alpha[idx]);
+            const o = idx * 4;
+            out.data[o] = 255; out.data[o + 1] = 255; out.data[o + 2] = 255; out.data[o + 3] = ring;
+          }
+        }
+        ctx.putImageData(out, 0, 0);
+        resolve(c.toDataURL('image/png'));
+      };
+      img.onerror = () => resolve(null);
       img.src = src;
     });
   }
@@ -270,6 +344,8 @@
       if (!m) continue;
       if (m.kind === 'arrow') {
         updateArrowGeometry(el, m);
+      } else if (m.kind === 'area') {
+        updateAreaGeometry(el, m);
       } else if (el.classList.contains('marker')) {
         const sp = worldToScreen(m.x * state.naturalW, m.y * state.naturalH);
         el.style.left = sp.x + 'px';
@@ -281,6 +357,7 @@
       }
     }
     updateArrowHandlePositions();
+    updateAreaHandlePositions();
   }
 
   function screenToWorld(clientX, clientY) {
@@ -329,6 +406,8 @@
     const showExtended = state.tintOn && state.area === 'extended';
     maskDefault.classList.toggle('visible', showDefault);
     maskExtended.classList.toggle('visible', showExtended);
+    maskBorderDefault.classList.toggle('visible', showDefault);
+    maskBorderExtended.classList.toggle('visible', showExtended);
   }
 
   function setArea(area, doFit = true) {
@@ -413,12 +492,22 @@
 
   function renderMarkers() {
     markerLayer.innerHTML = '';
-    state.markers.forEach(m => {
-      const el = m.kind === 'arrow' ? createArrowElement(m) : createPointMarkerElement(m);
+    // Areas render first (bottom of the stack) so point markers and arrows placed within
+    // or near a zone stay visible and clickable on top of it, rather than being covered.
+    const ordered = [
+      ...state.markers.filter(m => m.kind === 'area'),
+      ...state.markers.filter(m => m.kind !== 'area'),
+    ];
+    ordered.forEach(m => {
+      let el;
+      if (m.kind === 'arrow') el = createArrowElement(m);
+      else if (m.kind === 'area') el = createAreaElement(m);
+      else el = createPointMarkerElement(m);
       markerLayer.appendChild(el);
     });
     updateMarkerPositions();
     refreshArrowHandles();
+    refreshAreaHandles();
   }
 
   function createPointMarkerElement(m) {
@@ -500,6 +589,191 @@
       labelDiv.textContent = m.label;
       el.appendChild(labelDiv);
     }
+  }
+
+  function createAreaData(cx, cy, color, label) {
+    const halfXFrac = AREA_DEFAULT_HALF_WORLD / state.naturalW;
+    const halfYFrac = AREA_DEFAULT_HALF_WORLD / state.naturalH;
+    return {
+      id: nextId(),
+      type: 'area',
+      kind: 'area',
+      color: color || '#ff5252',
+      label: label || 'Area',
+      points: [
+        { x: clamp01(cx - halfXFrac), y: clamp01(cy - halfYFrac) },
+        { x: clamp01(cx + halfXFrac), y: clamp01(cy - halfYFrac) },
+        { x: clamp01(cx + halfXFrac), y: clamp01(cy + halfYFrac) },
+        { x: clamp01(cx - halfXFrac), y: clamp01(cy + halfYFrac) },
+      ],
+    };
+  }
+
+  function addArea(cx, cy, color, label) {
+    const m = createAreaData(cx, cy, color, label);
+    state.markers.push(m);
+    renderMarkers();
+    saveSession();
+    return m;
+  }
+
+  function createAreaElement(m) {
+    const el = document.createElement('div');
+    el.className = 'area-el' + (m.id === state.selectedId ? ' selected' : '');
+    el.dataset.id = m.id;
+    attachAreaBodyDrag(el, m);
+    return el;
+  }
+
+  function updateAreaGeometry(el, m) {
+    const screenPts = m.points.map(p => worldToScreen(p.x * state.naturalW, p.y * state.naturalH));
+    const stroke = Math.max(1.5, AREA_STROKE_WIDTH * state.scale);
+    const pad = stroke + 6;
+
+    const xs = screenPts.map(p => p.x), ys = screenPts.map(p => p.y);
+    const minX = Math.min(...xs) - pad, minY = Math.min(...ys) - pad;
+    const maxX = Math.max(...xs) + pad, maxY = Math.max(...ys) + pad;
+    const boxW = Math.max(1, maxX - minX), boxH = Math.max(1, maxY - minY);
+
+    el.style.left = minX + 'px';
+    el.style.top = minY + 'px';
+    el.style.width = boxW + 'px';
+    el.style.height = boxH + 'px';
+
+    const localPts = screenPts.map(p => ({ x: p.x - minX, y: p.y - minY }));
+    const pointsAttr = localPts.map(p => `${p.x},${p.y}`).join(' ');
+    const fillRgba = hexToRgba(m.color, AREA_FILL_OPACITY);
+
+    el.innerHTML = `<svg viewBox="0 0 ${boxW} ${boxH}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none;">
+      <polygon points="${pointsAttr}" fill="${fillRgba}" stroke="${m.color}" stroke-width="${stroke}" pointer-events="all"/>
+    </svg>`;
+
+    if (m.label) {
+      const cx = localPts.reduce((s, p) => s + p.x, 0) / localPts.length;
+      const cy = localPts.reduce((s, p) => s + p.y, 0) / localPts.length;
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'marker-label';
+      labelDiv.style.position = 'absolute';
+      labelDiv.style.left = cx + 'px';
+      labelDiv.style.top = cy + 'px';
+      labelDiv.style.transform = 'translate(-50%, -50%)';
+      labelDiv.textContent = m.label;
+      el.appendChild(labelDiv);
+    }
+  }
+
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const bigint = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+    const r = (bigint >> 16) & 255, g = (bigint >> 8) & 255, b = bigint & 255;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function attachAreaBodyDrag(el, m) {
+    let dragging = false;
+    let moved = false;
+    let startClientX = 0, startClientY = 0;
+    let startScreenPts = null;
+
+    el.addEventListener('pointerdown', (e) => {
+      if (!state.isMarshal) return;
+      e.stopPropagation();
+      e.preventDefault();
+      dragging = true;
+      moved = false;
+      startClientX = e.clientX;
+      startClientY = e.clientY;
+      startScreenPts = m.points.map(p => worldToScreen(p.x * state.naturalW, p.y * state.naturalH));
+      el.setPointerCapture(e.pointerId);
+    });
+
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dxScreen = e.clientX - startClientX;
+      const dyScreen = e.clientY - startClientY;
+      if (Math.abs(dxScreen) > 5 || Math.abs(dyScreen) > 5) moved = true;
+      if (moved) {
+        m.points = startScreenPts.map(sp => {
+          const wp = viewportPxToWorld(sp.x + dxScreen, sp.y + dyScreen);
+          return { x: clamp01(wp.x / state.naturalW), y: clamp01(wp.y / state.naturalH) };
+        });
+        updateAreaGeometry(el, m);
+        updateAreaHandlePositions();
+      }
+    });
+
+    el.addEventListener('pointerup', () => {
+      if (!state.isMarshal) return;
+      dragging = false;
+      selectMarker(m.id);
+      saveSession();
+    });
+  }
+
+  function attachAreaHandleDrag(handleEl, m, pointIndex) {
+    let dragging = false;
+    let startClientX = 0, startClientY = 0;
+    let startSp;
+
+    handleEl.addEventListener('pointerdown', (e) => {
+      if (!state.isMarshal) return;
+      e.stopPropagation();
+      e.preventDefault();
+      dragging = true;
+      startClientX = e.clientX;
+      startClientY = e.clientY;
+      const p = m.points[pointIndex];
+      startSp = worldToScreen(p.x * state.naturalW, p.y * state.naturalH);
+      handleEl.setPointerCapture(e.pointerId);
+    });
+
+    handleEl.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dxScreen = e.clientX - startClientX;
+      const dyScreen = e.clientY - startClientY;
+      const wp = viewportPxToWorld(startSp.x + dxScreen, startSp.y + dyScreen);
+      m.points[pointIndex] = { x: clamp01(wp.x / state.naturalW), y: clamp01(wp.y / state.naturalH) };
+      const areaEl = markerLayer.querySelector('.area-el[data-id="' + m.id + '"]');
+      if (areaEl) updateAreaGeometry(areaEl, m);
+      updateAreaHandlePositions();
+    });
+
+    handleEl.addEventListener('pointerup', () => {
+      if (!state.isMarshal) return;
+      dragging = false;
+      saveSession();
+    });
+  }
+
+  // The corner drag-handles for the currently selected area (one per point). Only one
+  // area's handles exist at a time, recreated whenever selection or the marker list changes.
+  let areaHandles = null; // { els: [...], areaId } | null
+
+  function refreshAreaHandles() {
+    areaHandles = null; // any previous handle DOM was already removed by markerLayer.innerHTML=''
+    if (!state.isMarshal) return;
+    const m = state.markers.find(x => x.id === state.selectedId);
+    if (!m || m.kind !== 'area') return;
+    const els = m.points.map((p, i) => {
+      const h = document.createElement('div');
+      h.className = 'arrow-handle';
+      markerLayer.appendChild(h);
+      attachAreaHandleDrag(h, m, i);
+      return h;
+    });
+    areaHandles = { els, areaId: m.id };
+    updateAreaHandlePositions();
+  }
+
+  function updateAreaHandlePositions() {
+    if (!areaHandles) return;
+    const m = state.markers.find(x => x.id === areaHandles.areaId);
+    if (!m) return;
+    m.points.forEach((p, i) => {
+      const sp = worldToScreen(p.x * state.naturalW, p.y * state.naturalH);
+      const h = areaHandles.els[i];
+      if (h) { h.style.left = sp.x + 'px'; h.style.top = sp.y + 'px'; }
+    });
   }
 
   function attachMarkerDrag(el, m) {
@@ -729,6 +1003,7 @@
   /* ============================== PALETTE DRAG-TO-PLACE ============================== */
 
   let pendingCustomDrop = null; // {x,y} awaiting name modal
+  let pendingAreaDrop = null; // {x,y} awaiting name modal
 
   function startPaletteDrag(type, startEvent) {
     startEvent.preventDefault();
@@ -737,9 +1012,11 @@
     ghost.className = 'drag-ghost';
     let previewColor;
     if (type === 'custom') previewColor = customColorInput.value;
+    else if (type === 'area') previewColor = areaColorInput.value;
     else if (type === 'flag') previewColor = '#ffffff';
     else previewColor = colorForNewOfType(type);
     if (type === 'arrow') ghost.innerHTML = arrowPreviewSVG(previewColor);
+    else if (type === 'area') ghost.innerHTML = areaPreviewSVG(previewColor);
     else ghost.innerHTML = type === 'flag' ? flagSVG(previewColor) : pinSVG(previewColor, def.letter || '?');
     document.body.appendChild(ghost);
 
@@ -764,6 +1041,13 @@
 
       if (type === 'custom') {
         pendingCustomDrop = { x: fx, y: fy, color: customColorInput.value };
+        nameModalTitle.textContent = 'Name this marker';
+        nameModalInput.value = '';
+        nameModal.classList.remove('hidden');
+        setTimeout(() => nameModalInput.focus(), 50);
+      } else if (type === 'area') {
+        pendingAreaDrop = { x: fx, y: fy, color: areaColorInput.value };
+        nameModalTitle.textContent = 'Name this area';
         nameModalInput.value = '';
         nameModal.classList.remove('hidden');
         setTimeout(() => nameModalInput.focus(), 50);
@@ -788,16 +1072,21 @@
   });
 
   nameModalConfirm.addEventListener('click', () => {
-    const name = nameModalInput.value.trim() || 'Marker';
+    const name = nameModalInput.value.trim();
     if (pendingCustomDrop) {
-      addMarker('custom', pendingCustomDrop.x, pendingCustomDrop.y, { label: name, color: pendingCustomDrop.color });
+      addMarker('custom', pendingCustomDrop.x, pendingCustomDrop.y, { label: name || 'Marker', color: pendingCustomDrop.color });
       pendingCustomDrop = null;
+    } else if (pendingAreaDrop) {
+      const newArea = addArea(pendingAreaDrop.x, pendingAreaDrop.y, pendingAreaDrop.color, name || 'Area');
+      pendingAreaDrop = null;
+      selectMarker(newArea.id);
     }
     nameModal.classList.add('hidden');
   });
 
   nameModalCancel.addEventListener('click', () => {
     pendingCustomDrop = null;
+    pendingAreaDrop = null;
     nameModal.classList.add('hidden');
   });
 
@@ -1172,6 +1461,7 @@
   }
 
   function setMarshalMode(isMarshal, email) {
+    const changed = state.isMarshal !== isMarshal;
     state.isMarshal = isMarshal;
     document.body.classList.toggle('viewer-mode', !isMarshal);
     rulesTextarea.readOnly = !isMarshal;
@@ -1179,8 +1469,11 @@
     btnMarshalLogout.classList.toggle('hidden', !isMarshal);
     marshalEmail.classList.toggle('hidden', !isMarshal);
     marshalEmail.textContent = isMarshal ? (email || '') : '';
-    if (isMarshal) {
+    if (changed) {
+      // Clear selection/handles on any role change, not just becoming a marshal — e.g. a
+      // marshal logging out mid-session must not leave stale, still-draggable handles behind.
       state.selectedId = null;
+      editPanel.classList.add('hidden');
       renderMarkers();
     }
   }
@@ -1369,6 +1662,22 @@
     // resolve, since a wrong path here would hide the tint even if the bbox load succeeded.
     checkMaskCssLoad(maskDefault, 'assets/default_map.png');
     checkMaskCssLoad(maskExtended, 'assets/extended_map.png');
+
+    // Generate the bright border ring shapes (see computeRingDataUrl) and apply once ready —
+    // the border fades in a moment after the fill, which is unnoticeable in practice.
+    Promise.all([
+      computeRingDataUrl('assets/default_map.png', 3),
+      computeRingDataUrl('assets/extended_map.png', 3),
+    ]).then(([ringDefaultUrl, ringExtendedUrl]) => {
+      if (ringDefaultUrl) {
+        maskBorderDefault.style.webkitMaskImage = `url(${ringDefaultUrl})`;
+        maskBorderDefault.style.maskImage = `url(${ringDefaultUrl})`;
+      }
+      if (ringExtendedUrl) {
+        maskBorderExtended.style.webkitMaskImage = `url(${ringExtendedUrl})`;
+        maskBorderExtended.style.maskImage = `url(${ringExtendedUrl})`;
+      }
+    });
 
     const isMarshal = await refreshAuthUI();
 
