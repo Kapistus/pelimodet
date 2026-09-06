@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Field Planner</title>
+<title>Game Planner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
 
   <!-- Top bar: layout + area controls -->
   <header class="topbar">
-    <div class="brand">FIELD<span>PLANNER</span></div>
+    <div class="brand">GAME<span>PLANNER</span></div>
     <span id="viewerLayoutTitle" class="viewer-layout-title viewer-only"></span>
 
     <div class="topbar-group">
@@ -114,6 +114,18 @@
 
       <div class="palette-divider"></div>
 
+      <button class="palette-item" data-type="area" draggable="false">
+        <span class="palette-icon" data-icon="area"></span>
+        <span>Area</span>
+      </button>
+      <label class="custom-color-row">
+        <span class="field-label">Color</span>
+        <input id="areaColorInput" type="color" value="#ff5252">
+      </label>
+      <div class="palette-hint" style="margin-top:0;padding-top:0;border-top:none;">Drag onto the map, name it, then drag any corner to reshape it.</div>
+
+      <div class="palette-divider"></div>
+
       <label class="tint-row">
         <input id="tintToggle" type="checkbox" checked>
         <span>Show area boundary</span>
@@ -126,6 +138,8 @@
     <div id="viewport" class="viewport">
       <div id="world" class="world">
         <img id="baseMap" class="map-layer" src="assets/pelialue.png" alt="Field map">
+        <div id="maskBorderDefault" class="map-layer mask-border-layer mask-border-default"></div>
+        <div id="maskBorderExtended" class="map-layer mask-border-layer mask-border-extended"></div>
         <div id="maskDefault" class="map-layer mask-layer mask-default"></div>
         <div id="maskExtended" class="map-layer mask-layer mask-extended"></div>
       </div>
@@ -167,7 +181,7 @@
 <!-- Generic naming modal (used for custom marker placement) -->
 <div id="nameModal" class="modal-backdrop hidden">
   <div class="modal">
-    <div class="modal-title">Name this marker</div>
+    <div id="nameModalTitle" class="modal-title">Name this marker</div>
     <input id="nameModalInput" class="text-input" type="text" maxlength="40" placeholder="e.g. Ammo cache">
     <div class="modal-actions">
       <button id="nameModalCancel" class="btn">Cancel</button>
