@@ -119,7 +119,6 @@
   const qrCopyBtn = document.getElementById('qrCopyBtn');
 
   const btnDraw = document.getElementById('btnDraw');
-  const btnDrawExit = document.getElementById('btnDrawExit');
   const drawBanner = document.getElementById('drawBanner');
   const drawCanvas = document.getElementById('drawCanvas');
 
@@ -1711,7 +1710,6 @@
   }
 
   if (btnDraw) btnDraw.addEventListener('click', toggleDrawMode);
-  if (btnDrawExit) btnDrawExit.addEventListener('click', exitDrawMode);
 
   // Drawing pointer handling lives on the canvas itself (only interactive while active).
   drawCanvas.addEventListener('pointerdown', (e) => {
