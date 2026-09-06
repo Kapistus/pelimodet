@@ -118,6 +118,11 @@
   const qrCloseBtn = document.getElementById('qrCloseBtn');
   const qrCopyBtn = document.getElementById('qrCopyBtn');
 
+  const btnDraw = document.getElementById('btnDraw');
+  const btnDrawExit = document.getElementById('btnDrawExit');
+  const drawBanner = document.getElementById('drawBanner');
+  const drawCanvas = document.getElementById('drawCanvas');
+
   /* ============================== ICONS ============================== */
 
   function badgeMarkup(cx, cy, badge) {
@@ -1216,7 +1221,7 @@
     saveSession();
   });
 
-  window.addEventListener('resize', () => fitToBBox(state.bbox[state.area]));
+  window.addEventListener('resize', () => { fitToBBox(state.bbox[state.area]); resizeDrawCanvas(); });
 
   /* ============================== SAVE / LOAD / EXPORT / IMPORT ============================== */
   // Save/Load now read and write the shared `shared_layouts` Supabase table, so any
@@ -1474,6 +1479,7 @@
       // marshal logging out mid-session must not leave stale, still-draggable handles behind.
       state.selectedId = null;
       editPanel.classList.add('hidden');
+      if (!isMarshal) exitDrawMode(); // a demoted/logged-out marshal shouldn't stay in draw mode
       renderMarkers();
     }
   }
@@ -1612,6 +1618,13 @@
             spotlightMarker(msg.payload && msg.payload.markerId);
           }
         })
+        .on('broadcast', { event: 'laser' }, (msg) => {
+          // Transient laser-pointer strokes from the marshal. Viewers draw them locally;
+          // they fade on their own timer, exactly like the marshal's own view.
+          if (!state.isMarshal && msg.payload) {
+            receiveLaser(msg.payload);
+          }
+        })
         .subscribe();
     } catch (e) {
       console.error('[FieldPlanner] Could not subscribe to live briefing updates:', e);
@@ -1638,6 +1651,222 @@
     flashButton(editSpotlight, 'Sent ✓');
   });
 
+  /* ============================== LASER DRAW MODE ============================== */
+  // A transient "laser pointer": the marshal enters draw mode and drags on the map to
+  // leave a thin line tipped with a dot at the live end. Each stroke fades out after a
+  // few seconds and is never saved. Strokes are broadcast point-by-point over the SAME
+  // realtime channel the spotlight already uses (no rooms, no new connection) so every
+  // viewer sees them drawn live. Points are stored in world-fraction coordinates so they
+  // land in the right place on every device regardless of that device's own pan/zoom.
+
+  const LASER_LIFETIME_MS = 10000;   // how long a completed stroke stays before fully gone
+  const LASER_FADE_MS = 1200;        // fade-out duration at the end of a stroke's life
+  const LASER_WIDTH = 3;             // stroke width in screen px at scale 1
+  const LASER_TIP_RADIUS = 5;        // the pointer dot at the live end
+  const LASER_SEND_INTERVAL_MS = 40; // throttle broadcasts (~25/sec) to stay smooth & light
+
+  const drawCtx = drawCanvas.getContext('2d');
+  let drawMode = false;
+  // Each stroke: { id, color, points:[{x,y}...] (world fractions), born:ts, done:bool, doneAt:ts }
+  const laserStrokes = [];
+  let localStroke = null;         // the marshal's in-progress stroke
+  let laserRafActive = false;
+  let lastSendAt = 0;
+  let pendingSendPoints = [];     // buffered points awaiting the next throttled broadcast
+
+  function resizeDrawCanvas() {
+    const r = viewport.getBoundingClientRect();
+    // Match the backing store to the device pixel ratio for crisp lines on tablets.
+    const dpr = window.devicePixelRatio || 1;
+    drawCanvas.width = Math.round(r.width * dpr);
+    drawCanvas.height = Math.round(r.height * dpr);
+    drawCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function enterDrawMode() {
+    if (!state.isMarshal) return;
+    drawMode = true;
+    resizeDrawCanvas();
+    drawCanvas.classList.add('active');
+    drawBanner.classList.remove('hidden');
+    btnDraw.classList.add('active');
+    // Leaving a marker selected mid-draw would be confusing; clear it.
+    hideEditPanel();
+    ensureLaserLoop();
+  }
+
+  function exitDrawMode() {
+    drawMode = false;
+    localStroke = null;
+    drawCanvas.classList.remove('active');
+    drawBanner.classList.add('hidden');
+    btnDraw.classList.remove('active');
+  }
+
+  function toggleDrawMode() {
+    if (drawMode) exitDrawMode(); else enterDrawMode();
+  }
+
+  if (btnDraw) btnDraw.addEventListener('click', toggleDrawMode);
+  if (btnDrawExit) btnDrawExit.addEventListener('click', exitDrawMode);
+
+  // Drawing pointer handling lives on the canvas itself (only interactive while active).
+  drawCanvas.addEventListener('pointerdown', (e) => {
+    if (!drawMode || !state.isMarshal) return;
+    e.preventDefault();
+    e.stopPropagation();
+    drawCanvas.setPointerCapture(e.pointerId);
+    const wp = screenToWorld(e.clientX, e.clientY);
+    const p = { x: wp.x / state.naturalW, y: wp.y / state.naturalH };
+    localStroke = {
+      id: 'l' + Date.now() + Math.random().toString(36).slice(2, 6),
+      color: '#ff3b3b',
+      points: [p],
+      born: performance.now(),
+      done: false,
+      doneAt: 0,
+    };
+    laserStrokes.push(localStroke);
+    pendingSendPoints = [p];
+    flushLaserSend(true); // send the stroke start immediately
+    ensureLaserLoop();
+  });
+
+  drawCanvas.addEventListener('pointermove', (e) => {
+    if (!drawMode || !localStroke) return;
+    e.preventDefault();
+    const wp = screenToWorld(e.clientX, e.clientY);
+    const p = { x: wp.x / state.naturalW, y: wp.y / state.naturalH };
+    localStroke.points.push(p);
+    pendingSendPoints.push(p);
+    const now = performance.now();
+    if (now - lastSendAt >= LASER_SEND_INTERVAL_MS) flushLaserSend(false);
+  });
+
+  function endLocalStroke(e) {
+    if (!localStroke) return;
+    if (e) { try { drawCanvas.releasePointerCapture(e.pointerId); } catch (_) {} }
+    flushLaserSend(false);          // send any buffered tail points
+    localStroke.done = true;
+    localStroke.doneAt = performance.now();
+    sendLaserEnd(localStroke.id);
+    localStroke = null;
+  }
+  drawCanvas.addEventListener('pointerup', endLocalStroke);
+  drawCanvas.addEventListener('pointercancel', endLocalStroke);
+
+  function flushLaserSend(isStart) {
+    if (!liveChannel || pendingSendPoints.length === 0 || !localStroke) { pendingSendPoints = []; return; }
+    liveChannel.send({
+      type: 'broadcast',
+      event: 'laser',
+      payload: {
+        kind: isStart ? 'start' : 'points',
+        id: localStroke.id,
+        color: localStroke.color,
+        points: pendingSendPoints.splice(0),
+      },
+    });
+    lastSendAt = performance.now();
+  }
+
+  function sendLaserEnd(id) {
+    if (!liveChannel) return;
+    liveChannel.send({ type: 'broadcast', event: 'laser', payload: { kind: 'end', id } });
+  }
+
+  function receiveLaser(payload) {
+    if (!payload || !payload.id) return;
+    let stroke = laserStrokes.find(s => s.id === payload.id);
+    if (payload.kind === 'start' || !stroke) {
+      if (!stroke) {
+        stroke = {
+          id: payload.id,
+          color: payload.color || '#ff3b3b',
+          points: [],
+          born: performance.now(),
+          done: false,
+          doneAt: 0,
+        };
+        laserStrokes.push(stroke);
+      }
+    }
+    if (payload.points && payload.points.length) {
+      stroke.points.push(...payload.points);
+    }
+    if (payload.kind === 'end') {
+      stroke.done = true;
+      stroke.doneAt = performance.now();
+    }
+    ensureLaserLoop();
+  }
+
+  function ensureLaserLoop() {
+    if (laserRafActive) return;
+    laserRafActive = true;
+    requestAnimationFrame(laserFrame);
+  }
+
+  function laserFrame() {
+    const now = performance.now();
+    const r = viewport.getBoundingClientRect();
+    drawCtx.clearRect(0, 0, r.width, r.height);
+
+    for (let i = laserStrokes.length - 1; i >= 0; i--) {
+      const s = laserStrokes[i];
+      // A stroke starts aging from the moment it's completed; an in-progress stroke stays
+      // fully opaque. This means the marshal can dwell on a spot and it won't vanish
+      // mid-gesture — the countdown begins only once they lift off.
+      let alpha = 1;
+      if (s.done) {
+        const age = now - s.doneAt;
+        if (age >= LASER_LIFETIME_MS) { laserStrokes.splice(i, 1); continue; }
+        if (age > LASER_LIFETIME_MS - LASER_FADE_MS) {
+          alpha = (LASER_LIFETIME_MS - age) / LASER_FADE_MS;
+        }
+      }
+      drawStroke(s, alpha);
+    }
+
+    // Keep animating while any stroke exists or the marshal is actively drawing.
+    if (laserStrokes.length > 0 || localStroke) {
+      requestAnimationFrame(laserFrame);
+    } else {
+      laserRafActive = false;
+    }
+  }
+
+  function drawStroke(s, alpha) {
+    if (!s.points.length) return;
+    const w = LASER_WIDTH * state.scale;
+    drawCtx.save();
+    drawCtx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    drawCtx.strokeStyle = s.color;
+    drawCtx.lineWidth = Math.max(1.5, w);
+    drawCtx.lineJoin = 'round';
+    drawCtx.lineCap = 'round';
+    drawCtx.shadowColor = s.color;
+    drawCtx.shadowBlur = 8 * state.scale;
+
+    drawCtx.beginPath();
+    let started = false;
+    for (let i = 0; i < s.points.length; i++) {
+      const sp = worldToScreen(s.points[i].x * state.naturalW, s.points[i].y * state.naturalH);
+      if (!started) { drawCtx.moveTo(sp.x, sp.y); started = true; }
+      else drawCtx.lineTo(sp.x, sp.y);
+    }
+    drawCtx.stroke();
+
+    // Pointer dot at the live (last) end of the stroke.
+    const last = s.points[s.points.length - 1];
+    const lsp = worldToScreen(last.x * state.naturalW, last.y * state.naturalH);
+    drawCtx.beginPath();
+    drawCtx.fillStyle = s.color;
+    drawCtx.arc(lsp.x, lsp.y, Math.max(2, LASER_TIP_RADIUS * state.scale), 0, Math.PI * 2);
+    drawCtx.fill();
+    drawCtx.restore();
+  }
+
   /* ============================== INIT ============================== */
 
   async function init() {
@@ -1650,6 +1879,8 @@
     state.naturalH = baseMap.naturalHeight;
     world.style.width = state.naturalW + 'px';
     world.style.height = state.naturalH + 'px';
+
+    resizeDrawCanvas();
 
     const [dBox, eBox] = await Promise.all([
       computeAlphaBBox('assets/default_map.png'),
